@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS study_sessions (
 
   start_time TEXT NOT NULL,  -- datetime
   end_time TEXT NOT NULL,    -- datetime
+  total_duration TEXT NOT NULL,    -- time
   session_date TEXT NOT NULL, -- 'YYYY-MM-DD'
 
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

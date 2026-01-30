@@ -50,6 +50,17 @@ function isValidDateTime(value) {
   const t = Date.parse(value);
   return Number.isFinite(t);
 }
+// Very light validation for duration timestamps.
+function isValidDuration(value) {
+  if (typeof value !== 'string') return false;
+
+  value = value.trim();
+
+  // hh:mm:ss (00–23 : 00–59 : 00–59)
+  const regex = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/;
+
+  return regex.test(value);
+}
 
 export function eventsRouter(db) {
   const router = express.Router();
@@ -160,8 +171,8 @@ export function eventsRouter(db) {
   `);
 
   const insertStudySessionStmt = db.prepare(`
-    INSERT INTO study_sessions (user_id, start_time, end_time, session_date)
-    VALUES (?, ?, ?, date(?))
+    INSERT INTO study_sessions (user_id, start_time, end_time, total_duration, session_date)
+    VALUES (?, ?, ?, ?, date(?))
   `);
 
   /**
@@ -426,12 +437,20 @@ export function eventsRouter(db) {
    */
   router.post('/study-session', (req, res) => {
     const userId = req.user.id;
-    const { startTime, endTime } = req.body ?? {};
+    const { startTime, endTime, totalDuration } = req.body ?? {};
 
     if (!isValidDateTime(startTime) || !isValidDateTime(endTime)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'startTime and endTime must be valid ISO datetime strings',
+      });
+    }
+
+    if (!isValidDuration(totalDuration)){
+      console.log(totalDuration);
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'totalDuration must be valid HH:MM:SS string',
       });
     }
 
@@ -446,12 +465,12 @@ export function eventsRouter(db) {
     }
 
     // Optional: ignore extremely short sessions (uncomment if you want)
-    // if (endMs - startMs < 5000) {
-    //   return res.status(200).json({ ok: true, ignored: true, reason: 'Session < 5 seconds' });
-    // }
+    if (endMs - startMs < 5000) {
+      return res.status(200).json({ ok: true, ignored: true, reason: 'Session < 5 seconds' });
+    }
 
     try {
-      const info = insertStudySessionStmt.run(userId, startTime, endTime, endTime);
+      const info = insertStudySessionStmt.run(userId, startTime, endTime, totalDuration, endTime);
       res.status(201).json({
         ok: true,
         sessionId: info.lastInsertRowid,
