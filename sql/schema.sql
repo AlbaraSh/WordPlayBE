@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   start_date TEXT NOT NULL DEFAULT (datetime('now')),
 
   total_xp INTEGER NOT NULL DEFAULT 0 CHECK (total_xp >= 0),
-  level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1),
+  level INTEGER NOT NULL DEFAULT 0 CHECK (level >= 0),
 
   study_streak INTEGER NOT NULL DEFAULT 0 CHECK (study_streak >= 0),
   last_streak_date TEXT NULL,          -- 'YYYY-MM-DD'
@@ -155,7 +155,10 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 
   progress INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0),
   unlocked INTEGER NOT NULL DEFAULT 0 CHECK (unlocked IN (0,1)),
+  claimed INTEGER NOT NULL DEFAULT 0 CHECK (claimed IN (0,1)),
+
   unlocked_date TEXT NULL, -- 'YYYY-MM-DD'
+  claimed_date TEXT NULL, -- 'YYYY-MM-DD'
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 
   PRIMARY KEY (user_id, achievement_id),
@@ -203,3 +206,119 @@ CREATE TABLE IF NOT EXISTS minigame_scores (
 CREATE INDEX IF NOT EXISTS idx_minigame_user_score ON minigame_scores(user_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_minigame_user_date ON minigame_scores(user_id, played_date);
 CREATE INDEX IF NOT EXISTS idx_minigame_difficulty_score ON minigame_scores(difficulty, score DESC);
+
+-- ============================================================
+-- ACHIEVEMENT PROGRESS SYNC (users -> user_achievements)
+-- Least-refactor approach: keep updating users counters anywhere,
+-- and DB keeps achievement progress/unlock state consistent.
+-- ============================================================
+
+CREATE TRIGGER IF NOT EXISTS trg_users_sync_achievements
+AFTER UPDATE OF study_streak, words_learned, correct_words, completed_minigames ON users
+BEGIN
+  -- Words learned achievements
+  UPDATE user_achievements
+  SET
+    progress = CASE
+      WHEN unlocked = 1 THEN progress_target
+      ELSE MIN(NEW.words_learned, progress_target)
+    END,
+    unlocked = CASE
+      WHEN unlocked = 1 THEN 1
+      WHEN NEW.words_learned >= progress_target THEN 1
+      ELSE 0
+    END,
+    unlocked_date = CASE
+      WHEN unlocked = 1 THEN unlocked_date
+      WHEN NEW.words_learned >= progress_target THEN COALESCE(unlocked_date, date('now','localtime'))
+      ELSE NULL
+    END,
+    updated_at = datetime('now')
+  WHERE user_id = NEW.id
+    AND achievement_id IN ('first_word','vocab_5','vocab_10','vocab_25','vocab_master');
+
+  -- Study streak achievements
+  UPDATE user_achievements
+  SET
+    progress = CASE
+      WHEN unlocked = 1 THEN progress_target
+      ELSE MIN(NEW.study_streak, progress_target)
+    END,
+    unlocked = CASE
+      WHEN unlocked = 1 THEN 1
+      WHEN NEW.study_streak >= progress_target THEN 1
+      ELSE 0
+    END,
+    unlocked_date = CASE
+      WHEN unlocked = 1 THEN unlocked_date
+      WHEN NEW.study_streak >= progress_target THEN COALESCE(unlocked_date, date('now','localtime'))
+      ELSE NULL
+    END,
+    updated_at = datetime('now')
+  WHERE user_id = NEW.id
+    AND achievement_id IN ('streak_3','streak_7');
+
+  -- Completed minigames achievements
+  UPDATE user_achievements
+  SET
+    progress = CASE
+      WHEN unlocked = 1 THEN progress_target
+      ELSE MIN(NEW.completed_minigames, progress_target)
+    END,
+    unlocked = CASE
+      WHEN unlocked = 1 THEN 1
+      WHEN NEW.completed_minigames >= progress_target THEN 1
+      ELSE 0
+    END,
+    unlocked_date = CASE
+      WHEN unlocked = 1 THEN unlocked_date
+      WHEN NEW.completed_minigames >= progress_target THEN COALESCE(unlocked_date, date('now','localtime'))
+      ELSE NULL
+    END,
+    updated_at = datetime('now')
+  WHERE user_id = NEW.id
+    AND achievement_id IN ('game_1','game_5');
+
+  -- Correct answers achievements
+  UPDATE user_achievements
+  SET
+    progress = CASE
+      WHEN unlocked = 1 THEN progress_target
+      ELSE MIN(NEW.correct_words, progress_target)
+    END,
+    unlocked = CASE
+      WHEN unlocked = 1 THEN 1
+      WHEN NEW.correct_words >= progress_target THEN 1
+      ELSE 0
+    END,
+    unlocked_date = CASE
+      WHEN unlocked = 1 THEN unlocked_date
+      WHEN NEW.correct_words >= progress_target THEN COALESCE(unlocked_date, date('now','localtime'))
+      ELSE NULL
+    END,
+    updated_at = datetime('now')
+  WHERE user_id = NEW.id
+    AND achievement_id IN ('correct_10','correct_50','perfectionist');
+END;
+
+-- Award XP automatically when an achievement becomes unlocked
+CREATE TRIGGER IF NOT EXISTS trg_achievement_award_xp
+AFTER UPDATE OF unlocked ON user_achievements
+WHEN OLD.unlocked = 0
+  AND NEW.unlocked = 1
+  AND NEW.claimed = 0
+BEGIN
+  UPDATE users
+  SET total_xp = total_xp + 30,
+      updated_at = datetime('now')
+  WHERE id = NEW.user_id;
+
+  UPDATE user_achievements
+  SET claimed = 1,
+      claimed_date = date('now','localtime'),
+      updated_at = datetime('now')
+  WHERE user_id = NEW.user_id
+    AND achievement_id = NEW.achievement_id;
+END;
+
+

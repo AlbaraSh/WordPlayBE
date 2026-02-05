@@ -58,9 +58,8 @@ export function initSchemaAndSeed(db) {
   // Achievements per user
   const insertUserAchievement = db.prepare(`
     INSERT OR IGNORE INTO user_achievements
-      (user_id, achievement_id, title, description, progress_target, progress, unlocked, unlocked_date, updated_at)
-    VALUES
-      (?, ?, ?, ?, ?, 0, 0, NULL, datetime('now'))
+      (user_id, achievement_id, title, description, progress_target, progress, unlocked, claimed, unlocked_date, claimed_date, updated_at)
+    VALUES (?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL, datetime('now'))
   `);
 
   const tx = db.transaction(() => {
