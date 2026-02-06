@@ -1,11 +1,10 @@
-// routes/events.js
 import express from 'express';
 
 const XP = {
   NEW_WORD_LEARNED: 10,
   STREAK_INCREMENT: 15,
   ACHIEVEMENT_UNLOCK: 30,
-  MINIGAME_COMPLETED: 20, // (kept here in case you use it elsewhere)
+  MINIGAME_COMPLETED: 20,
 };
 
 const BADGE_XP_STEP = 150;
@@ -15,7 +14,7 @@ function badgeIdFromXp(totalXp) {
 }
 
 function computeLevel(totalXp) {
-  // Simple leveling rule (adjust if you want)
+  // Simple leveling rule
   return 1 + Math.floor(Math.max(0, totalXp) / 500);
 }
 
@@ -44,7 +43,6 @@ function applyDailyStreak(lastStreakDate, studyStreak) {
 }
 
 // Very light validation for ISO timestamps.
-// (We mostly just need something Date.parse can handle.)
 function isValidDateTime(value) {
   if (typeof value !== 'string') return false;
   const t = Date.parse(value);
@@ -239,7 +237,7 @@ export function eventsRouter(db) {
         const newLevel = computeLevel(newTotalXp);
         const newBadgeId = badgeIdFromXp(newTotalXp);
 
-        // Keep streak fields unchanged here (read current then write same)
+        // Keep streak fields unchanged here
         const u = getUserStreakStmt.get(userId);
         updateUserStatsStmt.run(
           newTotalXp,
@@ -464,7 +462,7 @@ export function eventsRouter(db) {
       });
     }
 
-    // Optional: ignore extremely short sessions (uncomment if you want)
+    //ignore extremely short sessions
     if (endMs - startMs < 5000) {
       return res.status(200).json({ ok: true, ignored: true, reason: 'Session < 5 seconds' });
     }

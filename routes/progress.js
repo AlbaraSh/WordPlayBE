@@ -1,16 +1,6 @@
 import express from 'express';
 import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
 
-// Badge is now derived from XP in frontend, but we still store current_badge_id.
-// Rule: each badge = +150 XP
-const BADGE_XP_STEP = 150;
-
-function computeBadgeIdFromXp(totalXp) {
-  if (!Number.isFinite(totalXp) || totalXp < 0) return 0;
-  // Badge 0 means no badge yet; badge 1 unlocked at 150 XP, etc.
-  return Math.floor(totalXp / BADGE_XP_STEP);
-}
-
 export function progressRouter(db) {
   const router = express.Router();
   router.get('/word-mastery', (req, res) => {
@@ -117,7 +107,7 @@ export function progressRouter(db) {
           needsUpdate = true;
         }
         
-        // ✅ Save to DB if anything changed
+        // Save to DB if anything changed
         if (needsUpdate) {
           db.prepare(
             `UPDATE users 
@@ -181,13 +171,13 @@ export function progressRouter(db) {
           userStats: {
             userId: user.id,
             totalXp: user.total_xp,
-            level: user.level,  // Now guaranteed to be correct
+            level: user.level,
             studyStreak: user.study_streak,
             lastStreakDate: user.last_streak_date,
             wordsLearned: user.words_learned,
             correctWords: user.correct_words,
             completedMinigames: user.completed_minigames,
-            currentBadgeId: user.current_badge_id,  // Now guaranteed to be correct
+            currentBadgeId: user.current_badge_id,
             updatedAt: user.updated_at,
           },
           achievements: achievements.map((a) => ({
@@ -200,7 +190,7 @@ export function progressRouter(db) {
             unlockedDate: a.unlocked_date,
             updatedAt: a.updated_at,
           })),
-          levelUpOccurred,  // ✅ Frontend can show celebration if true
+          levelUpOccurred,
         });
       });
 
