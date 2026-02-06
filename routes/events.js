@@ -67,35 +67,61 @@ export function eventsRouter(db) {
   const wordExistsStmt = db.prepare(`SELECT 1 FROM words WHERE id = ?`);
 
   const insertDailyNoRTStmt = db.prepare(`
-    INSERT INTO user_word_daily_stats
-      (user_id, word_id, stat_date, times_asked, times_correct, avg_response_time, updated_at)
-    VALUES
-      (?, ?, date('now'), 1, ?, NULL, datetime('now'))
-    ON CONFLICT(user_id, word_id, stat_date)
-    DO UPDATE SET
-      times_asked = user_word_daily_stats.times_asked + 1,
-      times_correct = user_word_daily_stats.times_correct + excluded.times_correct,
-      updated_at = datetime('now')
-  `);
+  INSERT INTO user_word_daily_stats (
+    user_id,
+    word_id,
+    stat_date,
+    times_asked,
+    times_correct,
+    updated_at
+  )
+  VALUES (
+    ?, ?, date('now'),
+    1,
+    ?,                  -- dailyCorrectDelta (0 or 1)
+    datetime('now')
+  )
+  ON CONFLICT(user_id, word_id, stat_date) DO UPDATE SET
+    times_asked   = user_word_daily_stats.times_asked + 1,
+    times_correct = user_word_daily_stats.times_correct + excluded.times_correct,
+    updated_at    = datetime('now')
+`);
 
   const insertDailyWithRTStmt = db.prepare(`
-    INSERT INTO user_word_daily_stats
-      (user_id, word_id, stat_date, times_asked, times_correct, avg_response_time, updated_at)
-    VALUES
-      (?, ?, date('now'), 1, ?, ?, datetime('now'))
-    ON CONFLICT(user_id, word_id, stat_date)
-    DO UPDATE SET
-      avg_response_time =
-        CASE
-          WHEN user_word_daily_stats.avg_response_time IS NULL
-            THEN excluded.avg_response_time
-          ELSE
-            (user_word_daily_stats.avg_response_time * user_word_daily_stats.times_asked + excluded.avg_response_time)
-            / (user_word_daily_stats.times_asked + 1)
-        END,
-      times_asked = user_word_daily_stats.times_asked + 1,
-      times_correct = user_word_daily_stats.times_correct + excluded.times_correct,
-      updated_at = datetime('now')
+  INSERT INTO user_word_daily_stats (
+    user_id,
+    word_id,
+    stat_date,
+    times_asked,
+    times_correct,
+    avg_response_time,
+    updated_at
+  )
+  VALUES (
+    ?, ?, date('now'),
+    1,
+    ?,                  -- dailyCorrectDelta (0 or 1)
+    ?,                  -- response time (ms)
+    datetime('now')
+  )
+  ON CONFLICT(user_id, word_id, stat_date) DO UPDATE SET
+    times_asked   = user_word_daily_stats.times_asked + 1,
+    times_correct = user_word_daily_stats.times_correct + excluded.times_correct,
+
+    -- ✅ Only update avg when this attempt was correct (excluded.times_correct = 1)
+    avg_response_time =
+      CASE
+        WHEN excluded.times_correct = 1 THEN
+          (
+            COALESCE(user_word_daily_stats.avg_response_time, 0) * user_word_daily_stats.times_correct
+            + excluded.avg_response_time
+          )
+          / (user_word_daily_stats.times_correct + 1)
+        ELSE
+          user_word_daily_stats.avg_response_time
+      END,
+
+    updated_at = datetime('now')
   `);
 
   const getMasteryStmt = db.prepare(`
@@ -179,7 +205,7 @@ export function eventsRouter(db) {
    */
   router.post('/word-answered', (req, res) => {
     const userId = req.user.id;
-    const { wordId, isCorrect, responseTimeSeconds } = req.body ?? {};
+    const { wordId, isCorrect, responseTimeMs} = req.body ?? {};
 
     if (!Number.isInteger(wordId)) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'wordId must be an integer' });
@@ -188,11 +214,11 @@ export function eventsRouter(db) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'isCorrect must be boolean' });
     }
 
-    const rt = responseTimeSeconds == null ? null : Number(responseTimeSeconds);
+    const rt = responseTimeMs== null ? null : Number(responseTimeMs);
     if (rt != null && (!Number.isFinite(rt) || rt < 0)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'responseTimeSeconds must be a non-negative number',
+        message: 'responseTimeMsmust be a non-negative number',
       });
     }
 
@@ -212,10 +238,13 @@ export function eventsRouter(db) {
 
       // 1) Daily stats
       const dailyCorrectDelta = isCorrect ? 1 : 0;
-      if (rt == null) {
-        insertDailyNoRTStmt.run(userId, wordId, dailyCorrectDelta);
-      } else {
+
+      if (isCorrect && rt != null) {
+        // only correct answers contribute RT
         insertDailyWithRTStmt.run(userId, wordId, dailyCorrectDelta, rt);
+      } else {
+        // incorrect answers (and correct answers without RT) still get recorded
+        insertDailyNoRTStmt.run(userId, wordId, dailyCorrectDelta);
       }
 
       // 2) Mastery totals
