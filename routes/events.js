@@ -1,4 +1,6 @@
 import express from 'express';
+import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
+import { syncAchievements } from '../src/utils/xp.js';
 
 const XP = {
   NEW_WORD_LEARNED: 10,
@@ -7,15 +9,9 @@ const XP = {
   MINIGAME_COMPLETED: 20,
 };
 
-const BADGE_XP_STEP = 150;
-
-function badgeIdFromXp(totalXp) {
-  return Math.floor(Math.max(0, totalXp) / BADGE_XP_STEP);
-}
-
-function computeLevel(totalXp) {
-  // Simple leveling rule
-  return 1 + Math.floor(Math.max(0, totalXp) / 500);
+function levelAndBadge(totalXp) {
+  const level = calculateLevelFromXp(totalXp);
+  return { level, badgeId: calculateBadgeIdFromLevel(level) };
 }
 
 function isoDateUTC() {
@@ -171,29 +167,6 @@ export function eventsRouter(db) {
     WHERE id = ?
   `);
 
-  const getUserAchievementStmt = db.prepare(`
-    SELECT progress, unlocked, progress_target, unlocked_date
-    FROM user_achievements
-    WHERE user_id = ? AND achievement_id = ?
-  `);
-
-  const incUserAchievementProgressStmt = db.prepare(`
-    UPDATE user_achievements
-    SET
-      progress = progress + ?,
-      updated_at = datetime('now')
-    WHERE user_id = ? AND achievement_id = ?
-  `);
-
-  const unlockAchievementStmt = db.prepare(`
-    UPDATE user_achievements
-    SET
-      unlocked = 1,
-      unlocked_date = date('now'),
-      updated_at = datetime('now')
-    WHERE user_id = ? AND achievement_id = ?
-  `);
-
   const insertStudySessionStmt = db.prepare(`
     INSERT INTO study_sessions (user_id, start_time, end_time, total_duration, session_date)
     VALUES (?, ?, ?, ?, date(?))
@@ -263,8 +236,7 @@ export function eventsRouter(db) {
       if (xpAwarded !== 0 || wordsLearnedDelta !== 0 || correctWordsDelta !== 0) {
         const user = getUserXpStmt.get(userId);
         const newTotalXp = (user?.total_xp ?? 0) + xpAwarded;
-        const newLevel = computeLevel(newTotalXp);
-        const newBadgeId = badgeIdFromXp(newTotalXp);
+        const { level: newLevel, badgeId: newBadgeId } = levelAndBadge(newTotalXp);
 
         // Keep streak fields unchanged here
         const u = getUserStreakStmt.get(userId);
@@ -280,12 +252,14 @@ export function eventsRouter(db) {
           userId
         );
 
+        const synced = syncAchievements(db, userId);
         return {
-          xpAwarded,
+          xpAwarded: xpAwarded + synced.xpAwarded,
           wasFirstCorrectEver,
-          totalXp: newTotalXp,
-          level: newLevel,
-          currentBadgeId: newBadgeId,
+          totalXp: synced.totalXp,
+          level: synced.level,
+          currentBadgeId: synced.currentBadgeId,
+          achievementsUnlocked: synced.unlockedNow,
         };
       }
 
@@ -321,15 +295,13 @@ export function eventsRouter(db) {
 
       let xpAwarded = 0;
       let newTotalXp = user.total_xp;
-      let newLevel = user.level;
 
       if (streakResult.changed) {
         xpAwarded = XP.STREAK_INCREMENT;
         newTotalXp = user.total_xp + xpAwarded;
-        newLevel = computeLevel(newTotalXp);
       }
 
-      const newBadgeId = badgeIdFromXp(newTotalXp);
+      const { level: newLevel, badgeId: newBadgeId } = levelAndBadge(newTotalXp);
 
       // Update users row; other counters unchanged
       updateUserStatsStmt.run(
@@ -344,14 +316,16 @@ export function eventsRouter(db) {
         userId
       );
 
+      const synced = syncAchievements(db, userId);
       return {
-        xpAwarded,
+        xpAwarded: xpAwarded + synced.xpAwarded,
         streakChanged: streakResult.changed,
         studyStreak: streakResult.newStreak,
         lastStreakDate: streakResult.newLastDate,
-        totalXp: newTotalXp,
-        level: newLevel,
-        currentBadgeId: newBadgeId,
+        totalXp: synced.totalXp,
+        level: synced.level,
+        currentBadgeId: synced.currentBadgeId,
+        achievementsUnlocked: synced.unlockedNow,
       };
     });
 
@@ -363,93 +337,9 @@ export function eventsRouter(db) {
     }
   });
 
-  /**
-   * POST /api/events/achievement-progress
-   * Body: { achievementId: string, progressDelta: number }
-   *
-   * Uses progress_target stored in user_achievements.
-   * If reaches target and was locked -> unlocked_date = date('now') and +30 XP.
-   */
   router.post('/achievement-progress', (req, res) => {
-    const userId = req.user.id;
-    const { achievementId, progressDelta } = req.body ?? {};
-
-    if (typeof achievementId !== 'string' || !achievementId.trim()) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'achievementId must be a non-empty string' });
-    }
-    const delta = Number(progressDelta);
-    if (!Number.isFinite(delta) || delta <= 0) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'progressDelta must be a positive number' });
-    }
-
-    const tx = db.transaction(() => {
-      const row = getUserAchievementStmt.get(userId, achievementId);
-      if (!row) {
-        throw new Error(
-          `Achievement ${achievementId} not found for user (did you seed user_achievements?)`
-        );
-      }
-
-      // Increment progress
-      incUserAchievementProgressStmt.run(delta, userId, achievementId);
-
-      const updated = getUserAchievementStmt.get(userId, achievementId);
-
-      let xpAwarded = 0;
-      let unlockedNow = false;
-
-      if (!updated.unlocked && updated.progress >= updated.progress_target) {
-        unlockAchievementStmt.run(userId, achievementId);
-
-        xpAwarded = XP.ACHIEVEMENT_UNLOCK;
-        unlockedNow = true;
-
-        const user = getUserXpStmt.get(userId);
-        const newTotalXp = (user?.total_xp ?? 0) + xpAwarded;
-        const newLevel = computeLevel(newTotalXp);
-        const newBadgeId = badgeIdFromXp(newTotalXp);
-
-        // Keep streak + counters unchanged
-        const u = getUserStreakStmt.get(userId);
-        updateUserStatsStmt.run(
-          newTotalXp,
-          newLevel,
-          0,
-          0,
-          0,
-          u?.study_streak ?? 0,
-          u?.last_streak_date ?? null,
-          newBadgeId,
-          userId
-        );
-
-        const finalRow = getUserAchievementStmt.get(userId, achievementId);
-
-        return {
-          achievementId,
-          progress: finalRow.progress,
-          progressTarget: finalRow.progress_target,
-          unlockedNow,
-          unlockedDate: finalRow.unlocked_date,
-          xpAwarded,
-          totalXp: newTotalXp,
-          level: newLevel,
-          currentBadgeId: newBadgeId,
-        };
-      }
-
-      return {
-        achievementId,
-        progress: updated.progress,
-        progressTarget: updated.progress_target,
-        unlockedNow,
-        unlockedDate: updated.unlocked_date,
-        xpAwarded: 0,
-      };
-    });
-
     try {
-      const result = tx();
+      const result = db.transaction(() => syncAchievements(db, req.user.id))();
       res.json({ ok: true, ...result });
     } catch (e) {
       res.status(500).json({ error: 'ERROR', message: String(e.message || e) });

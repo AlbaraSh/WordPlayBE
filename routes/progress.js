@@ -1,4 +1,5 @@
 import express from 'express';
+import { getDefaultCourseId } from '../schema-init.js';
 import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
 
 export function progressRouter(db) {
@@ -59,6 +60,7 @@ export function progressRouter(db) {
    */
     router.get('/', (req, res) => {
         const userId = req.user.id;
+        const courseId = getDefaultCourseId(db);
 
         const user = db
           .prepare(
@@ -120,32 +122,33 @@ export function progressRouter(db) {
           .prepare(
             `SELECT section_num, lesson, completed, score, flashcard_progress
             FROM lesson_progress
-            WHERE user_id = ?`
+            WHERE user_id = ? AND course_id = ?`
           )
-          .all(userId);
+          .all(userId, courseId);
 
         const sectionRows = db
           .prepare(
-            `SELECT section_num, score
+            `SELECT section_num, score, best_score
             FROM section_test_scores
-            WHERE user_id = ?`
+            WHERE user_id = ? AND course_id = ?`
           )
-          .all(userId);
+          .all(userId, courseId);
 
         const achievements = db
           .prepare(
             `SELECT
-              achievement_id,
-              title,
-              description,
-              progress_target,
-              progress,
-              unlocked,
-              unlocked_date,
-              updated_at
-            FROM user_achievements
-            WHERE user_id = ?
-            ORDER BY achievement_id`
+              a.id AS achievement_id,
+              a.title,
+              a.description,
+              a.progress_target,
+              COALESCE(ua.progress, 0) AS progress,
+              COALESCE(ua.unlocked, 0) AS unlocked,
+              ua.unlocked_date,
+              ua.updated_at
+            FROM achievements a
+            LEFT JOIN user_achievements ua
+              ON ua.achievement_id = a.id AND ua.user_id = ?
+            ORDER BY a.id`
           )
           .all(userId);
 
@@ -162,7 +165,10 @@ export function progressRouter(db) {
 
         const sectionTestScores = {};
         for (const r of sectionRows) {
-          sectionTestScores[String(r.section_num)] = r.score;
+          sectionTestScores[String(r.section_num)] = {
+            latest: r.score,
+            best: Math.max(r.best_score ?? 0, r.score),
+          };
         }
 
         res.json({
@@ -218,16 +224,17 @@ export function progressRouter(db) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'completed must be boolean' });
     }
 
+    const courseId = getDefaultCourseId(db);
     db.prepare(`
-      INSERT INTO lesson_progress (user_id, section_num, lesson, flashcard_progress, score, completed, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(user_id, section_num, lesson)
+      INSERT INTO lesson_progress (user_id, course_id, section_num, lesson, flashcard_progress, score, completed, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id, course_id, section_num, lesson)
       DO UPDATE SET
         flashcard_progress = excluded.flashcard_progress,
         score = excluded.score,
         completed = excluded.completed,
         updated_at = datetime('now')
-    `).run(userId, sectionNum, lesson, flashcardProgress, score, completed ? 1 : 0);
+    `).run(userId, courseId, sectionNum, lesson, flashcardProgress, score, completed ? 1 : 0);
 
     const key = `${sectionNum}-${lesson}`;
     res.json({ key, stats: { completed, score, flashcardProgress } });
@@ -248,16 +255,19 @@ export function progressRouter(db) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'score must be 0..100' });
     }
 
-    db.prepare(`
-      INSERT INTO section_test_scores (user_id, section_num, score, completed_at)
-      VALUES (?, ?, ?, datetime('now'))
-      ON CONFLICT(user_id, section_num)
+    const courseId = getDefaultCourseId(db);
+    const saved = db.prepare(`
+      INSERT INTO section_test_scores (user_id, course_id, section_num, score, best_score, completed_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id, course_id, section_num)
       DO UPDATE SET
         score = excluded.score,
+        best_score = MAX(section_test_scores.best_score, excluded.score),
         completed_at = datetime('now')
-    `).run(userId, sectionNum, score);
+      RETURNING score AS latest, best_score AS best
+    `).get(userId, courseId, sectionNum, score, score);
 
-    res.json({ sectionNum, score });
+    res.json({ sectionNum, latest: saved.latest, best: saved.best });
   });
 
     /**
@@ -267,16 +277,26 @@ export function progressRouter(db) {
   router.get('/words', (req, res) => {
   const userId = req.user.id;
 
+  const courseId = getDefaultCourseId(db);
+  const sections = db.prepare(`
+    SELECT section_num, name FROM sections WHERE course_id = ? ORDER BY section_num
+  `).all(courseId);
   const rows = db
     .prepare(
       `SELECT id, section_num, lesson_num, category, romaji, english
        FROM words
+       WHERE course_id = ?
        ORDER BY section_num, lesson_num, id`
     )
-    .all();
+    .all(courseId);
 
   res.json({
     userId,
+    courseId,
+    sections: sections.map((section) => ({
+      sectionNum: section.section_num,
+      name: section.name,
+    })),
     words: rows.map((r) => ({
       id: r.id,
       sectionNum: r.section_num,
