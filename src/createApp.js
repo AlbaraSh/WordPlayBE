@@ -11,7 +11,7 @@ import { progressRouter } from '../routes/progress.js';
 import { eventsRouter } from '../routes/events.js';
 import { leaderboardRouter } from '../routes/leaderboard.js';
 
-const clientDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../WordPlayFE/dist');
+const clientDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../client/dist');
 
 export function createApp(db) {
   const app = express();

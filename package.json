@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "concurrently -n api,web -c blue,green \"nodemon server.js\" \"npm run dev --prefix client\"",
+    "dev:api": "nodemon server.js",
+    "build": "npm run build --prefix client",
     "test": "node --test test/api.test.js"
   },
   "keywords": [],
@@ -21,6 +23,7 @@
     "express": "^5.2.1"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.11"
   },
   "repository": {
