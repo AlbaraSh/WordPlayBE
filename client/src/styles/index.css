@@ -1,0 +1,15 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+body {
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  background: #f4f1ea;
+  color: #1c1917;
+}
+
+h1, h2, h3 {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}

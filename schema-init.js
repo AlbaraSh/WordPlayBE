@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { vocabularyData } from './seed/words.js';
 
-const ALLOWED_USERS = Array.from({ length: 10 }, (_, i) => `user${i + 1}`);
+const SCHEMA_VERSION = 2;
 
 const SECTION_NAMES = {
   1: 'Weather',
@@ -13,93 +14,93 @@ const SECTION_NAMES = {
   6: 'Adjectives',
 };
 
-// Achievement definitions (seeded into user_achievements for each user)
-const ACHIEVEMENTS = [
-  { id: 'first_word',     title: 'First Steps',         description: 'Learn your first word',                target: 1 },
-  { id: 'vocab_5',        title: 'Word Explorer',       description: 'Learn 5 words',                       target: 5 },
-  { id: 'vocab_10',       title: 'Vocabulary Builder',  description: 'Learn 10 words',                      target: 10 },
-  { id: 'vocab_25',       title: 'Language Enthusiast', description: 'Learn 25 words',                      target: 25 },
-  { id: 'streak_3',       title: 'Consistent Learner',  description: 'Maintain a 3-day study streak',       target: 3 },
-  { id: 'streak_7',       title: 'Week Warrior',        description: 'Maintain a 7-day study streak',       target: 7 },
-  { id: 'game_1',         title: 'Game On',             description: 'Complete your first game',            target: 1 },
-  { id: 'game_5',         title: 'Game Master',         description: 'Complete 5 games',                    target: 5 },
-  { id: 'correct_10',     title: 'Sharp Mind',          description: 'Get 10 correct answers',              target: 10 },
-  { id: 'correct_50',     title: 'Accuracy Expert',     description: 'Get 50 correct answers',              target: 50 },
-  { id: 'vocab_master',   title: 'Vocabulary Master',   description: 'Learn all 28 words',                  target: 28 },
-  { id: 'perfectionist',  title: 'Perfectionist',       description: 'Get 100 correct answers',             target: 100 },
+const WORD_COUNT = vocabularyData.length;
+
+export const ACHIEVEMENTS = [
+  { id: 'first_word', title: 'First Steps', description: 'Learn your first word', target: 1, stat: 'words_learned' },
+  { id: 'vocab_5', title: 'Word Explorer', description: 'Learn 5 words', target: 5, stat: 'words_learned' },
+  { id: 'vocab_10', title: 'Vocabulary Builder', description: 'Learn 10 words', target: 10, stat: 'words_learned' },
+  { id: 'vocab_25', title: 'Language Enthusiast', description: 'Learn 25 words', target: 25, stat: 'words_learned' },
+  { id: 'streak_3', title: 'Consistent Learner', description: 'Maintain a 3-day study streak', target: 3, stat: 'study_streak' },
+  { id: 'streak_7', title: 'Week Warrior', description: 'Maintain a 7-day study streak', target: 7, stat: 'study_streak' },
+  { id: 'game_1', title: 'Game On', description: 'Complete your first game', target: 1, stat: 'completed_minigames' },
+  { id: 'game_5', title: 'Game Master', description: 'Complete 5 games', target: 5, stat: 'completed_minigames' },
+  { id: 'correct_10', title: 'Sharp Mind', description: 'Get 10 correct answers', target: 10, stat: 'correct_words' },
+  { id: 'correct_50', title: 'Accuracy Expert', description: 'Get 50 correct answers', target: 50, stat: 'correct_words' },
+  { id: 'vocab_master', title: 'Vocabulary Master', description: `Learn all ${WORD_COUNT} words`, target: WORD_COUNT, stat: 'words_learned' },
+  { id: 'perfectionist', title: 'Perfectionist', description: 'Get 100 correct answers', target: 100, stat: 'correct_words' },
 ];
 
-export function initSchemaAndSeed(db) {
-  const schemaPath = path.join(process.cwd(), 'sql', 'schema.sql');
-  const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-
-  // Create tables
-  db.exec(schemaSql);
-
-  // Users
-  const insertUser = db.prepare(`
-    INSERT OR IGNORE INTO users (id)
-    VALUES (?)
-  `);
-
-  // Sections
-  const insertSection = db.prepare(`
-    INSERT OR IGNORE INTO sections (id, name)
+export function createUserAchievements(db, userId) {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO user_achievements (user_id, achievement_id)
     VALUES (?, ?)
   `);
+  for (const achievement of ACHIEVEMENTS) insert.run(userId, achievement.id);
+}
 
-  // Words
-  const insertWord = db.prepare(`
-    INSERT OR IGNORE INTO words
-      (id, section_num, lesson_num, category, romaji, english)
-    VALUES (?, ?, ?, ?, ?, ?)
+function currentVersion(db) {
+  const exists = db.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'
+  `).get();
+  if (!exists) return 0;
+  return db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get()?.version ?? 0;
+}
+
+function resetDatabase(db) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  const objects = db.prepare(`
+    SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'
+  `).all();
+  for (const obj of objects) {
+    if (obj.type === 'trigger') db.exec(`DROP TRIGGER IF EXISTS "${obj.name}"`);
+  }
+  for (const obj of objects) {
+    if (obj.type === 'table') db.exec(`DROP TABLE IF EXISTS "${obj.name}"`);
+  }
+  db.exec('PRAGMA foreign_keys = ON');
+}
+
+export function initSchemaAndSeed(db) {
+  if (currentVersion(db) !== SCHEMA_VERSION) resetDatabase(db);
+
+  const schemaPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'sql', 'schema.sql');
+  db.exec(fs.readFileSync(schemaPath, 'utf-8'));
+
+  const insertCourse = db.prepare(`INSERT OR IGNORE INTO courses (id, name, is_default) VALUES (1, 'Starter', 1)`);
+  const insertSection = db.prepare(`
+    INSERT OR IGNORE INTO sections (course_id, section_num, name) VALUES (1, ?, ?)
   `);
-
-  // Achievements per user
-  const insertUserAchievement = db.prepare(`
-    INSERT OR IGNORE INTO user_achievements
-      (user_id, achievement_id, title, description, progress_target, progress, unlocked, claimed, unlocked_date, claimed_date, updated_at)
-    VALUES (?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL, datetime('now'))
+  const insertWord = db.prepare(`
+    INSERT OR IGNORE INTO words (id, course_id, section_num, lesson_num, category, romaji, english)
+    VALUES (?, 1, ?, ?, ?, ?, ?)
+  `);
+  const insertAchievement = db.prepare(`
+    INSERT INTO achievements (id, title, description, progress_target, stat)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      description = excluded.description,
+      progress_target = excluded.progress_target,
+      stat = excluded.stat
   `);
 
   const tx = db.transaction(() => {
-    // 1) Seed users
-    for (const id of ALLOWED_USERS) {
-      insertUser.run(id);
+    db.prepare(`INSERT OR IGNORE INTO schema_meta (version) VALUES (?)`).run(SCHEMA_VERSION);
+    insertCourse.run();
+    for (const word of vocabularyData) {
+      insertSection.run(word.section, SECTION_NAMES[word.section] ?? `Section ${word.section}`);
+      insertWord.run(word.id, word.section, word.lessonNum, word.category, word.word, word.translation);
     }
-
-    // 2) Seed sections + words
-    for (const w of vocabularyData) {
-      const sectionName = SECTION_NAMES[w.section] ?? `Section ${w.section}`;
-      insertSection.run(w.section, sectionName);
-
-      insertWord.run(
-        w.id,
-        w.section,
-        w.lessonNum,
-        w.category,
-        w.word,
-        w.translation
-      );
-    }
-
-    // 3) Seed achievements for every user (progress=0, unlocked=0)
-    for (const userId of ALLOWED_USERS) {
-      for (const a of ACHIEVEMENTS) {
-        insertUserAchievement.run(
-          userId,
-          a.id,
-          a.title,
-          a.description,
-          a.target
-        );
-      }
+    for (const achievement of ACHIEVEMENTS) {
+      insertAchievement.run(achievement.id, achievement.title, achievement.description, achievement.target, achievement.stat);
     }
   });
-
   tx();
+}
 
-  console.log(`✅ Seeded ${ALLOWED_USERS.length} users`);
-  console.log(`✅ Seeded ${vocabularyData.length} words`);
-  console.log(`✅ Seeded ${ALLOWED_USERS.length * ACHIEVEMENTS.length} user_achievement rows`);
+export function getDefaultCourseId(db) {
+  const row = db.prepare(`SELECT id FROM courses WHERE is_default = 1 ORDER BY id LIMIT 1`).get();
+  if (!row) throw new Error('No default course');
+  return row.id;
 }

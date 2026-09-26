@@ -1,15 +1,9 @@
 import express from 'express';
+import { getDefaultCourseId } from '../schema-init.js';
+import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
+import { syncAchievements } from '../src/utils/xp.js';
 
 const XP_MINIGAME_COMPLETED = 20;
-const BADGE_XP_STEP = 150;
-
-function computeLevel(totalXp) {
-  return 1 + Math.floor(Math.max(0, totalXp) / 500);
-}
-
-function badgeIdFromXp(totalXp) {
-  return Math.floor(Math.max(0, totalXp) / BADGE_XP_STEP);
-}
 
 export function leaderboardRouter(db) {
   const router = express.Router();
@@ -61,15 +55,16 @@ export function leaderboardRouter(db) {
     }
 
     const tx = db.transaction(() => {
+      const courseId = getDefaultCourseId(db);
       const info = db.prepare(`
-        INSERT INTO minigame_scores (user_id, score, difficulty, section_num, played_at, played_date)
-        VALUES (?, ?, ?, ?, datetime('now'), date('now'))
-      `).run(userId, score, difficulty, sectionNum ?? null);
+        INSERT INTO minigame_scores (user_id, course_id, score, difficulty, section_num, played_at, played_date)
+        VALUES (?, ?, ?, ?, ?, datetime('now'), date('now'))
+      `).run(userId, courseId, score, difficulty, sectionNum ?? null);
 
       const user = db.prepare(`SELECT total_xp FROM users WHERE id = ?`).get(userId);
       const newTotalXp = (user?.total_xp ?? 0) + XP_MINIGAME_COMPLETED;
-      const newLevel = computeLevel(newTotalXp);
-      const newBadgeId = badgeIdFromXp(newTotalXp);
+      const newLevel = calculateLevelFromXp(newTotalXp);
+      const newBadgeId = calculateBadgeIdFromLevel(newLevel);
 
       db.prepare(`
         UPDATE users
@@ -82,16 +77,18 @@ export function leaderboardRouter(db) {
         WHERE id = ?
       `).run(newTotalXp, newLevel, newBadgeId, userId);
 
+      const synced = syncAchievements(db, userId);
       return {
         id: info.lastInsertRowid,
         userId,
         score,
         difficulty,
         sectionNum: sectionNum ?? null,
-        xpAwarded: XP_MINIGAME_COMPLETED,
-        totalXp: newTotalXp,
-        level: newLevel,
-        currentBadgeId: newBadgeId,
+        xpAwarded: XP_MINIGAME_COMPLETED + synced.xpAwarded,
+        totalXp: synced.totalXp,
+        level: synced.level,
+        currentBadgeId: synced.currentBadgeId,
+        achievementsUnlocked: synced.unlockedNow,
       };
     });
 
