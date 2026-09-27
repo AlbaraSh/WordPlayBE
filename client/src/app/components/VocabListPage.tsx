@@ -1,47 +1,23 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp, Volume2 } from 'lucide-react';
 import { api, VocabPreview } from '../../api/client';
-import {
-  vocabularyData,
-  userWordStats,
-  courseSections,
-  usingCustomVocab,
-  initializeVocabularyData,
-  initializeUserWordStats,
-} from '../data/vocabulary';
+import { useCourse } from '../course';
 import { colorsForSection } from '../data/sectionColors';
 
 export default function VocabListPage() {
+  const {
+    words: vocabularyData,
+    sections: courseSections,
+    wordStats: userWordStats,
+    custom: usingCustomVocab,
+    reload,
+  } = useCourse();
   const [openSections, setOpenSections] = useState<Set<number>>(new Set());
-  const [isLoadingStats, setIsLoadingStats] = useState(true);
-  const [statsVersion, setStatsVersion] = useState(0); // Force re-render when stats load
   const [preview, setPreview] = useState<VocabPreview | null>(null);
   const [pendingCsv, setPendingCsv] = useState('');
   const [importError, setImportError] = useState('');
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const loadStats = async () => {
-      try {
-        await initializeUserWordStats();
-        console.log('Word stats loaded:', userWordStats);
-        setStatsVersion(v => v + 1); // Force re-render
-      } catch (error) {
-        console.error('Failed to load word stats:', error);
-      } finally {
-        setIsLoadingStats(false);
-      }
-    };
-
-    loadStats();
-  }, []); // Empty dependency array means this runs once when component mounts
-
-  const reloadList = async () => {
-    await initializeVocabularyData();
-    await initializeUserWordStats();
-    setStatsVersion((version) => version + 1);
-  };
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -71,7 +47,7 @@ export default function VocabListPage() {
       await api.importVocab(pendingCsv);
       setPreview(null);
       setPendingCsv('');
-      await reloadList();
+      await reload();
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Import failed');
     } finally {
@@ -90,7 +66,7 @@ export default function VocabListPage() {
       await api.resetVocab();
       setPreview(null);
       setPendingCsv('');
-      await reloadList();
+      await reload();
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Reset failed');
     } finally {
@@ -211,14 +187,6 @@ export default function VocabListPage() {
         )}
       </div>
 
-      {/* Loading state */}
-      {isLoadingStats && (
-        <div className="text-center py-8 text-gray-600">
-          Loading statistics...
-        </div>
-      )}
-
-      {/* Sections */}
       <div className="space-y-4">
         {courseSections.map((section) => {
           const sectionNum = section.sectionNum;

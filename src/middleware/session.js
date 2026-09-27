@@ -15,7 +15,8 @@ export function loadSession(db) {
       SELECT u.id, u.email, u.display_name
       FROM sessions s
       JOIN users u ON u.id = s.user_id
-      WHERE s.id = ? AND s.expires_at > datetime('now')
+      WHERE s.id = ?
+        AND datetime(replace(replace(s.expires_at, 'T', ' '), 'Z', '')) > datetime('now')
     `).get(sid);
 
     req.user = row
@@ -35,9 +36,13 @@ export function requireUser(req, res, next) {
   next();
 }
 
+function sqliteUtc(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 export function createSession(db, res, userId) {
   const sid = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + THIRTY_DAYS_MS).toISOString();
+  const expiresAt = sqliteUtc(new Date(Date.now() + THIRTY_DAYS_MS));
   db.prepare(`
     INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)
   `).run(sid, userId, expiresAt);

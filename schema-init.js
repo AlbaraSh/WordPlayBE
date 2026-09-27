@@ -47,25 +47,14 @@ function currentVersion(db) {
   return db.prepare(`SELECT version FROM schema_meta LIMIT 1`).get()?.version ?? 0;
 }
 
-function resetDatabase(db) {
-  db.exec('PRAGMA foreign_keys = OFF');
-  const objects = db.prepare(`
-    SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'
-  `).all();
-  for (const obj of objects) {
-    if (obj.type === 'trigger') db.exec(`DROP TRIGGER IF EXISTS "${obj.name}"`);
-  }
-  for (const obj of objects) {
-    if (obj.type === 'table') db.exec(`DROP TABLE IF EXISTS "${obj.name}"`);
-  }
-  db.exec('PRAGMA foreign_keys = ON');
+function applySchema(db) {
+  const schemaPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'sql', 'schema.sql');
+  db.exec(fs.readFileSync(schemaPath, 'utf-8'));
 }
 
 export function initSchemaAndSeed(db) {
-  if (currentVersion(db) !== SCHEMA_VERSION) resetDatabase(db);
-
-  const schemaPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'sql', 'schema.sql');
-  db.exec(fs.readFileSync(schemaPath, 'utf-8'));
+  // Additive only. A version bump must not drop user data.
+  applySchema(db);
 
   const insertCourse = db.prepare(`INSERT OR IGNORE INTO courses (id, name, is_default) VALUES (1, 'Starter', 1)`);
   const insertSection = db.prepare(`
@@ -86,7 +75,6 @@ export function initSchemaAndSeed(db) {
   `);
 
   const tx = db.transaction(() => {
-    db.prepare(`INSERT OR IGNORE INTO schema_meta (version) VALUES (?)`).run(SCHEMA_VERSION);
     insertCourse.run();
     for (const word of vocabularyData) {
       insertSection.run(word.section, SECTION_NAMES[word.section] ?? `Section ${word.section}`);
@@ -97,6 +85,11 @@ export function initSchemaAndSeed(db) {
     }
   });
   tx();
+
+  if (currentVersion(db) !== SCHEMA_VERSION) {
+    db.prepare(`DELETE FROM schema_meta`).run();
+    db.prepare(`INSERT INTO schema_meta (version) VALUES (?)`).run(SCHEMA_VERSION);
+  }
 }
 
 export function getDefaultCourseId(db) {

@@ -192,7 +192,7 @@ export function eventsRouter(db) {
     if (rt != null && (!Number.isFinite(rt) || rt < 0)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'responseTimeMsmust be a non-negative number',
+        message: 'responseTimeMs must be a non-negative number',
       });
     }
 
@@ -271,7 +271,8 @@ export function eventsRouter(db) {
       const result = tx();
       res.json({ ok: true, ...result });
     } catch (e) {
-      res.status(500).json({ error: 'ERROR', message: String(e.message || e) });
+      console.error(e);
+      res.status(500).json({ error: 'ERROR', message: 'Something went wrong' });
     }
   });
 
@@ -334,7 +335,8 @@ export function eventsRouter(db) {
       const result = tx();
       res.json({ ok: true, ...result });
     } catch (e) {
-      res.status(500).json({ error: 'ERROR', message: String(e.message || e) });
+      console.error(e);
+      res.status(500).json({ error: 'ERROR', message: 'Something went wrong' });
     }
   });
 
@@ -343,7 +345,8 @@ export function eventsRouter(db) {
       const result = db.transaction(() => syncAchievements(db, req.user.id))();
       res.json({ ok: true, ...result });
     } catch (e) {
-      res.status(500).json({ error: 'ERROR', message: String(e.message || e) });
+      console.error(e);
+      res.status(500).json({ error: 'ERROR', message: 'Something went wrong' });
     }
   });
 
@@ -364,8 +367,7 @@ export function eventsRouter(db) {
       });
     }
 
-    if (!isValidDuration(totalDuration)){
-      console.log(totalDuration);
+    if (!isValidDuration(totalDuration)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'totalDuration must be valid HH:MM:SS string',
@@ -394,7 +396,8 @@ export function eventsRouter(db) {
         sessionId: info.lastInsertRowid,
       });
     } catch (e) {
-      res.status(500).json({ error: 'ERROR', message: String(e.message || e) });
+      console.error(e);
+      res.status(500).json({ error: 'ERROR', message: 'Something went wrong' });
     }
   });
 

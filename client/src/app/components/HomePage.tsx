@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, BookOpen, Gamepad2, Trophy, Flame } from 'lucide-react';
-import { api } from '../../api/client';
+import { ArrowRight, BookOpen, Gamepad2, Trophy, Flame, Clock } from 'lucide-react';
 
 interface HomePageProps {
   progress: {
@@ -9,57 +8,32 @@ interface HomePageProps {
     studyStreak: number;
     gamesPlayed: number;
     correctAnswers: number;
+    studySeconds: number;
+    studySessions: number;
   };
+  onRefresh: () => Promise<void>;
 }
 
-type BackendProgress = {
-  user?: {
-    wordsLearned?: number;
-    studyStreak?: number;
-    completedMinigames?: number;
-    correctWords?: number;
-  };
-  wordsLearned?: number;
-  studyStreak?: number;
-  completedMinigames?: number;
-  correctWords?: number;
-};
+function formatStudy(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
 
-export default function HomePage({ progress }: HomePageProps) {
+export default function HomePage({ progress, onRefresh }: HomePageProps) {
   const navigate = useNavigate();
-  // Backend truth (optional). If backend fails, we fall back to props.
-  const [backendProgress, setBackendProgress] = useState<BackendProgress | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadProgress = async () => {
-    setLoading(true);
+  const refresh = async () => {
+    setRefreshing(true);
     try {
-      const data: any = await api.getProgress();
-      setBackendProgress(data);
-    } catch (e) {
-      console.error('Failed to load progress:', e);
-      setBackendProgress(null);
+      await onRefresh();
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   };
-
-  useEffect(() => {
-    loadProgress();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const displayProgress = useMemo(() => {
-    // Support either { user: {...} } or flat responses.
-    const u = backendProgress?.user ?? backendProgress ?? {};
-
-    return {
-      wordsLearned: (u.wordsLearned ?? progress.wordsLearned) as number,
-      studyStreak: (u.studyStreak ?? progress.studyStreak) as number,
-      gamesPlayed: (u.completedMinigames ?? progress.gamesPlayed) as number,
-      correctAnswers: (u.correctWords ?? progress.correctAnswers) as number,
-    };
-  }, [backendProgress, progress]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -78,8 +52,8 @@ export default function HomePage({ progress }: HomePageProps) {
         </button>
 
         <div className="mt-4 flex items-center justify-center gap-3 text-sm text-gray-500">
-          {loading ? <span>Syncing with backend…</span> : <span>Synced</span>}
-          <button onClick={loadProgress} className="underline hover:text-gray-700">
+          <span>{refreshing ? 'Syncing…' : 'Synced'}</span>
+          <button onClick={refresh} className="underline hover:text-gray-700">
             Refresh
           </button>
         </div>
@@ -93,7 +67,7 @@ export default function HomePage({ progress }: HomePageProps) {
               <BookOpen className="size-6 text-blue-600" />
             </div>
             <div>
-              <div className="text-3xl font-bold text-gray-900">{displayProgress.wordsLearned}</div>
+              <div className="text-3xl font-bold text-gray-900">{progress.wordsLearned}</div>
               <div className="text-sm text-gray-600">Words Learned</div>
             </div>
           </div>
@@ -105,7 +79,7 @@ export default function HomePage({ progress }: HomePageProps) {
               <Flame className="size-6 text-orange-600" />
             </div>
             <div>
-              <div className="text-3xl font-bold text-gray-900">{displayProgress.studyStreak}</div>
+              <div className="text-3xl font-bold text-gray-900">{progress.studyStreak}</div>
               <div className="text-sm text-gray-600">Day Streak</div>
             </div>
           </div>
@@ -117,7 +91,7 @@ export default function HomePage({ progress }: HomePageProps) {
               <Gamepad2 className="size-6 text-green-600" />
             </div>
             <div>
-              <div className="text-3xl font-bold text-gray-900">{displayProgress.gamesPlayed}</div>
+              <div className="text-3xl font-bold text-gray-900">{progress.gamesPlayed}</div>
               <div className="text-sm text-gray-600">Games Played</div>
             </div>
           </div>
@@ -129,12 +103,19 @@ export default function HomePage({ progress }: HomePageProps) {
               <Trophy className="size-6 text-purple-600" />
             </div>
             <div>
-              <div className="text-3xl font-bold text-gray-900">{displayProgress.correctAnswers}</div>
+              <div className="text-3xl font-bold text-gray-900">{progress.correctAnswers}</div>
               <div className="text-sm text-gray-600">Correct Answers</div>
             </div>
           </div>
         </div>
       </div>
+
+      <p className="text-center text-sm text-stone-500 -mt-8 mb-12 flex items-center justify-center gap-2">
+        <Clock className="size-4" />
+        {progress.studySessions === 0
+          ? 'Study time is saved when you leave a session that lasts at least 5 seconds.'
+          : `${formatStudy(progress.studySeconds)} studied across ${progress.studySessions} session${progress.studySessions === 1 ? '' : 's'}.`}
+      </p>
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -1,16 +1,8 @@
+import { type ReactNode } from 'react';
 import { Badge, Star, Zap, Trophy, Flame, Crown, Target, Award, Sparkles, Shield, BookOpen, Gamepad2 } from 'lucide-react';
-import { BADGE_LIST, type BadgeItem } from '../data/badges';
-import { useEffect } from 'react';
+import { BADGE_LIST } from '../data/badges';
 
 interface AchievementsPageProps {
-  progress: {
-    wordsLearned: number;
-    studyStreak: number;
-    gamesPlayed: number;
-    correctAnswers: number;
-  };
-  claimedAchievements: string[];
-  onClaimAchievement: (achievementId: string, xpReward: number) => void;
   backendAchievements: Array<{
     id: string;
     title: string;
@@ -26,7 +18,7 @@ interface AchievementsPageProps {
 // Achievement type for UI definitions only
 type AchievementUI = {
   id: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   color: string;
   xpReward: number;
 };
@@ -122,10 +114,7 @@ const ACHIEVEMENT_UI_LIST: AchievementUI[] = [
   },
 ];
 
-export default function AchievementsPage({ 
-  progress, 
-  claimedAchievements, 
-  onClaimAchievement, 
+export default function AchievementsPage({
   backendAchievements,
   totalXp,
   currentLevel,
@@ -182,15 +171,6 @@ export default function AchievementsPage({
       xpReward: uiData?.xpReward || ACHIEVEMENT_XP_REWARD,
     };
   });
-
-  // Claim achievements that are unlocked but not yet claimed
-  useEffect(() => {
-    achievements.forEach(achievement => {
-      if (achievement.unlocked && !claimedAchievements.includes(achievement.id)) {
-        onClaimAchievement(achievement.id, achievement.xpReward);
-      }
-    });
-  }, [achievements, claimedAchievements, onClaimAchievement]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">

@@ -4,20 +4,22 @@ import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/le
 import { syncAchievements } from '../src/utils/xp.js';
 
 const XP_MINIGAME_COMPLETED = 20;
+const DIFFICULTIES = new Set(['beginner', 'intermediate', 'master']);
+const MAX_SCORE = 30000;
 
 export function leaderboardRouter(db) {
   const router = express.Router();
 
   /**
    * GET /api/leaderboard/top10
-   * Personal top 10
+   * This user's best minigame scores. Scores are reported by the client.
    */
   router.get('/top10', (req, res) => {
     const userId = req.user.id;
 
     const rows = db
       .prepare(
-        `SELECT score, difficulty, section_num, played_at
+        `SELECT id, score, difficulty, section_num, played_at
          FROM minigame_scores
          WHERE user_id = ?
          ORDER BY score DESC
@@ -28,6 +30,7 @@ export function leaderboardRouter(db) {
     res.json({
       userId,
       top10: rows.map((r) => ({
+        id: r.id,
         score: r.score,
         difficulty: r.difficulty,
         sectionNum: r.section_num,
@@ -44,11 +47,11 @@ export function leaderboardRouter(db) {
     const userId = req.user.id;
     const { score, difficulty, sectionNum } = req.body ?? {};
 
-    if (!Number.isInteger(score) || score < 0) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'score must be a non-negative integer' });
+    if (!Number.isInteger(score) || score < 0 || score > MAX_SCORE) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: `score must be an integer from 0 to ${MAX_SCORE}` });
     }
-    if (!difficulty || typeof difficulty !== 'string') {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'difficulty must be a string' });
+    if (!DIFFICULTIES.has(difficulty)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'difficulty must be beginner, intermediate, or master' });
     }
     if (sectionNum != null && (!Number.isInteger(sectionNum) || sectionNum < 1)) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'sectionNum must be an integer >= 1 or null' });
@@ -96,7 +99,8 @@ export function leaderboardRouter(db) {
       const result = tx();
       res.status(201).json(result);
     } catch (e) {
-      res.status(500).json({ error: 'ERROR', message: String(e.message || e) });
+      console.error(e);
+      res.status(500).json({ error: 'ERROR', message: 'Something went wrong' });
     }
   });
 

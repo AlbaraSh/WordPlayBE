@@ -8,16 +8,18 @@ import AchievementsPage from './components/AchievementsPage';
 import AuthPage from './components/AuthPage';
 import LandingPage from './components/LandingPage';
 import UserProfile from './components/UserProfile';
+import { CourseProvider } from './course';
 import { BADGE_LIST } from './data/badges';
 import { Trophy, Home, GraduationCap, BookOpen, Gamepad2 } from 'lucide-react';
 import { api, SessionUser } from '../api/client';
-import { initializeVocabularyData } from './data/vocabulary';
 
 type UserProgress = {
   wordsLearned: number;
   studyStreak: number;
   gamesPlayed: number;
   correctAnswers: number;
+  studySeconds: number;
+  studySessions: number;
 };
 
 type BackendProgress = {
@@ -31,6 +33,10 @@ type BackendProgress = {
     correctWords: number;
     completedMinigames: number;
     currentBadgeId: number | null;
+  };
+  study?: {
+    sessionCount: number;
+    totalSeconds: number;
   };
   achievements: Array<{
     id: string;
@@ -71,8 +77,6 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [backendProgress, setBackendProgress] = useState<BackendProgress | null>(null);
   const [loading, setLoading] = useState(true);
-  const [vocabularyLoaded, setVocabularyLoaded] = useState(false);
-  const [claimedAchievements, setClaimedAchievements] = useState<string[]>([]);
 
   const INACTIVITY_MS = 30 * 60 * 1000;
   const sessionStartMsRef = useRef<number | null>(null);
@@ -114,7 +118,6 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setLoading(false);
-      setVocabularyLoaded(false);
       setBackendProgress(null);
       return;
     }
@@ -123,12 +126,9 @@ export default function App() {
     setLoading(true);
     (async () => {
       try {
-        await initializeVocabularyData();
-        if (cancelled) return;
-        setVocabularyLoaded(true);
         await loadProgress();
       } catch (error) {
-        console.error('Failed to initialize app:', error);
+        console.error('Failed to load progress:', error);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -170,13 +170,22 @@ export default function App() {
 
   const userProgress: UserProgress = useMemo(() => {
     if (!backendProgress) {
-      return { wordsLearned: 0, studyStreak: 0, gamesPlayed: 0, correctAnswers: 0 };
+      return {
+        wordsLearned: 0,
+        studyStreak: 0,
+        gamesPlayed: 0,
+        correctAnswers: 0,
+        studySeconds: 0,
+        studySessions: 0,
+      };
     }
     return {
       wordsLearned: backendProgress.userStats.wordsLearned ?? 0,
       studyStreak: backendProgress.userStats.studyStreak ?? 0,
       gamesPlayed: backendProgress.userStats.completedMinigames ?? 0,
       correctAnswers: backendProgress.userStats.correctWords ?? 0,
+      studySeconds: backendProgress.study?.totalSeconds ?? 0,
+      studySessions: backendProgress.study?.sessionCount ?? 0,
     };
   }, [backendProgress]);
 
@@ -190,10 +199,6 @@ export default function App() {
 
   const updateProgress = async () => {
     await loadProgress();
-  };
-
-  const claimAchievement = (achievementId: string) => {
-    setClaimedAchievements((prev) => (prev.includes(achievementId) ? prev : [...prev, achievementId]));
   };
 
   const logout = async () => {
@@ -257,29 +262,28 @@ export default function App() {
                   </div>
                 </nav>
                 <div className="flex-1 overflow-auto">
-                  {(loading && !backendProgress) || !vocabularyLoaded ? (
+                  {loading && !backendProgress ? (
                     <div className="p-8 text-stone-600">Loading your course…</div>
                   ) : (
-                    <Routes>
-                      <Route path="/" element={<HomePage progress={userProgress} />} />
-                      <Route path="/vocab" element={<VocabListPage />} />
-                      <Route path="/learn" element={<LearningPage onProgressUpdate={updateProgress} />} />
-                      <Route path="/game" element={<MinigamePage onProgressUpdate={updateProgress} />} />
-                      <Route
-                        path="/achievements"
-                        element={
-                          <AchievementsPage
-                            progress={userProgress}
-                            claimedAchievements={claimedAchievements}
-                            onClaimAchievement={claimAchievement}
-                            backendAchievements={backendProgress?.achievements ?? []}
-                            totalXp={backendProgress?.userStats.totalXp ?? 0}
-                            currentLevel={backendProgress?.userStats.level ?? 0}
-                          />
-                        }
-                      />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
+                    <CourseProvider>
+                      <Routes>
+                        <Route path="/" element={<HomePage progress={userProgress} onRefresh={updateProgress} />} />
+                        <Route path="/vocab" element={<VocabListPage />} />
+                        <Route path="/learn" element={<LearningPage onProgressUpdate={updateProgress} />} />
+                        <Route path="/game" element={<MinigamePage onProgressUpdate={updateProgress} />} />
+                        <Route
+                          path="/achievements"
+                          element={
+                            <AchievementsPage
+                              backendAchievements={backendProgress?.achievements ?? []}
+                              totalXp={backendProgress?.userStats.totalXp ?? 0}
+                              currentLevel={backendProgress?.userStats.level ?? 0}
+                            />
+                          }
+                        />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                      </Routes>
+                    </CourseProvider>
                   )}
                 </div>
               </>

@@ -134,6 +134,20 @@ export function progressRouter(db) {
           )
           .all(userId, courseId);
 
+        const study = db
+          .prepare(
+            `SELECT
+              COUNT(*) AS session_count,
+              COALESCE(SUM(
+                CAST(substr(total_duration, 1, 2) AS INTEGER) * 3600 +
+                CAST(substr(total_duration, 4, 2) AS INTEGER) * 60 +
+                CAST(substr(total_duration, 7, 2) AS INTEGER)
+              ), 0) AS total_seconds
+            FROM study_sessions
+            WHERE user_id = ?`
+          )
+          .get(userId);
+
         const achievements = db
           .prepare(
             `SELECT
@@ -196,6 +210,10 @@ export function progressRouter(db) {
             unlockedDate: a.unlocked_date,
             updatedAt: a.updated_at,
           })),
+          study: {
+            sessionCount: study.session_count,
+            totalSeconds: study.total_seconds,
+          },
           levelUpOccurred,
         });
       });

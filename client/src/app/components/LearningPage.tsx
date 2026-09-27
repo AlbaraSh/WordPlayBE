@@ -14,9 +14,9 @@ import {
   Lock,
 } from 'lucide-react';
 
-import { vocabularyData, courseSections, updateWordStats, userWordStats } from '../data/vocabulary';
 import { colorsForSection, lessonColors } from '../data/sectionColors';
 import SectionTestPage from '../components/SectionTestPage';
+import { useCourse } from '../course';
 
 import { api } from '../../api/client';
 
@@ -39,6 +39,12 @@ type SectionTestScore = {
 };
 
 export default function LearningPage({ onProgressUpdate }: LearningPageProps) {
+  const {
+    words: vocabularyData,
+    sections: courseSections,
+    wordStats: userWordStats,
+    recordAnswer: updateWordStats,
+  } = useCourse();
   const [openSections, setOpenSections] = useState<Set<number>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>('sections');
   const [selectedSection, setSelectedSection] = useState<number>(1);

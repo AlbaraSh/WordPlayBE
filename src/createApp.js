@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 
+import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { loadSession, requireUser } from './middleware/session.js';
 import { authRouter } from '../routes/auth.js';
 import { progressRouter } from '../routes/progress.js';
@@ -40,6 +41,9 @@ export function createApp(db) {
       res.sendFile(path.join(clientDist, 'index.html'));
     });
   }
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }
