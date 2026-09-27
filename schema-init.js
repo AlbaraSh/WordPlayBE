@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { vocabularyData } from './seed/words.js';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SECTION_NAMES = {
   1: 'Weather',
@@ -103,4 +103,13 @@ export function getDefaultCourseId(db) {
   const row = db.prepare(`SELECT id FROM courses WHERE is_default = 1 ORDER BY id LIMIT 1`).get();
   if (!row) throw new Error('No default course');
   return row.id;
+}
+
+export function getOwnedCourseId(db, userId) {
+  const row = db.prepare(`SELECT id FROM courses WHERE owner_user_id = ?`).get(userId);
+  return row?.id ?? null;
+}
+
+export function getActiveCourseId(db, userId) {
+  return getOwnedCourseId(db, userId) ?? getDefaultCourseId(db);
 }

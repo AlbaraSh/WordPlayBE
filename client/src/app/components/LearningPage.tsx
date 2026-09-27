@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 import { vocabularyData, courseSections, updateWordStats, userWordStats } from '../data/vocabulary';
-import { sectionColors } from '../data/sectionColors';
+import { colorsForSection, lessonColors } from '../data/sectionColors';
 import SectionTestPage from '../components/SectionTestPage';
 
 import { api } from '../../api/client';
@@ -25,7 +25,7 @@ interface LearningPageProps {
 }
 
 type ViewMode = 'sections' | 'flashcards' | 'exercises' | 'results' | 'sectionTest';
-type LessonType = 'lesson1' | 'lesson2' | 'lesson3' | 'test';
+type LessonType = `lesson${number}` | 'test';
 
 type LessonStats = {
   completed: boolean;
@@ -105,12 +105,16 @@ export default function LearningPage({ onProgressUpdate }: LearningPageProps) {
     setOpenSections(newOpenSections);
   };
 
+  const lessonNumbersFor = (section: number) => {
+    return [...new Set(vocabularyData.filter((word) => word.section === section).map((word) => word.lessonNum))].sort(
+      (a, b) => a - b
+    );
+  };
+
   const getLessonWords = (section: number, lesson: LessonType) => {
     const sectionWords = vocabularyData.filter((w) => w.section === section);
-
     if (lesson === 'test') return sectionWords;
-
-    const lessonNumber = lesson === 'lesson1' ? 1 : lesson === 'lesson2' ? 2 : 3;
+    const lessonNumber = Number(lesson.replace('lesson', ''));
     return sectionWords.filter((w) => w.lessonNum === lessonNumber);
   };
 
@@ -377,9 +381,8 @@ export default function LearningPage({ onProgressUpdate }: LearningPageProps) {
   };
 
   const areAllLessonsComplete = (sectionNum: number): boolean => {
-    return (['lesson1', 'lesson2', 'lesson3'] as const).every(
-      (lesson) => lessonStats[`${sectionNum}-${lesson}`]?.completed
-    );
+    const lessons = lessonNumbersFor(sectionNum);
+    return lessons.length > 0 && lessons.every((lesson) => lessonStats[`${sectionNum}-lesson${lesson}`]?.completed);
   };
 
   const isSectionComplete = (sectionNum: number): boolean => {
@@ -412,7 +415,8 @@ export default function LearningPage({ onProgressUpdate }: LearningPageProps) {
             const sectionNum = section.sectionNum;
             const isOpen = openSections.has(sectionNum);
             const sectionWords = vocabularyData.filter(w => w.section === sectionNum);
-            const colors = sectionColors[sectionNum as keyof typeof sectionColors];
+            const colors = colorsForSection(sectionNum);
+            const lessonNumbers = lessonNumbersFor(sectionNum);
 
             return (
               <div key={sectionNum} className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
@@ -445,111 +449,50 @@ export default function LearningPage({ onProgressUpdate }: LearningPageProps) {
                 {isOpen && (
                   <div className="p-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {/* Lesson 1 */}
-                      <button
-                        onClick={() => startFlashcards(sectionNum, 'lesson1')}
-                        className={`bg-gradient-to-br ${colors.lesson1} rounded-lg p-6 hover:shadow-lg transition-all text-left group`}
-                      >
-                        <div className={`${colors.lesson1Icon} p-3 rounded-lg w-fit mb-3`}>
-                          <BookOpen className="size-6 text-white" />
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-1">Lesson 1</h3>
-                        <p className="text-sm text-gray-600 mb-2">
-                          {getLessonWords(sectionNum, 'lesson1').length} words
-                        </p>
-                        <div className="text-xs text-gray-700 mt-2 pt-2 border-t border-gray-300">
-                          <div className="flex items-center justify-between mb-1">
-                            <span>Flashcards</span>
-                            <span className="font-semibold">{getFlashcardProgress(sectionNum, 'lesson1')}%</span>
-                          </div>
-                          {lessonStats[`${sectionNum}-lesson1`]?.completed && (
-                            <div className="flex items-center justify-between">
-                              <span>✓ Exercise</span>
-                              <span className="font-semibold">{lessonStats[`${sectionNum}-lesson1`].score}%</span>
+                      {lessonNumbers.map((lessonNum) => {
+                        const lessonKey = `lesson${lessonNum}` as LessonType;
+                        const style = lessonColors(sectionNum, lessonNum);
+                        return (
+                          <button
+                            key={lessonKey}
+                            onClick={() => startFlashcards(sectionNum, lessonKey)}
+                            className={`bg-gradient-to-br ${style.card} rounded-lg p-6 hover:shadow-lg transition-all text-left group`}
+                          >
+                            <div className={`${style.icon} p-3 rounded-lg w-fit mb-3`}>
+                              <BookOpen className="size-6 text-white" />
                             </div>
-                          )}
-                          {/* Show "Completed" only if flashcards are 100% AND section test is 100% */}
-                          {getFlashcardProgress(sectionNum, 'lesson1') === 100 && 
-                           sectionTestScores[sectionNum]?.best === 100 && (
-                            <div className="mt-1 text-green-600 font-semibold">
-                              ✓ Completed
+                            <h3 className="text-lg font-bold text-gray-900 mb-1">Lesson {lessonNum}</h3>
+                            <p className="text-sm text-gray-600 mb-2">
+                              {getLessonWords(sectionNum, lessonKey).length} words
+                            </p>
+                            <div className="text-xs text-gray-700 mt-2 pt-2 border-t border-gray-300">
+                              <div className="flex items-center justify-between mb-1">
+                                <span>Flashcards</span>
+                                <span className="font-semibold">{getFlashcardProgress(sectionNum, lessonKey)}%</span>
+                              </div>
+                              {lessonStats[`${sectionNum}-${lessonKey}`]?.completed && (
+                                <div className="flex items-center justify-between">
+                                  <span>✓ Exercise</span>
+                                  <span className="font-semibold">{lessonStats[`${sectionNum}-${lessonKey}`].score}%</span>
+                                </div>
+                              )}
+                              {getFlashcardProgress(sectionNum, lessonKey) === 100 &&
+                               sectionTestScores[sectionNum]?.best === 100 && (
+                                <div className="mt-1 text-green-600 font-semibold">
+                                  ✓ Completed
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </button>
-
-                      {/* Lesson 2 */}
-                      <button
-                        onClick={() => startFlashcards(sectionNum, 'lesson2')}
-                        className={`bg-gradient-to-br ${colors.lesson2} rounded-lg p-6 hover:shadow-lg transition-all text-left group`}
-                      >
-                        <div className={`${colors.lesson2Icon} p-3 rounded-lg w-fit mb-3`}>
-                          <BookOpen className="size-6 text-white" />
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-1">Lesson 2</h3>
-                        <p className="text-sm text-gray-600 mb-2">
-                          {getLessonWords(sectionNum, 'lesson2').length} words
-                        </p>
-                        <div className="text-xs text-gray-700 mt-2 pt-2 border-t border-gray-300">
-                          <div className="flex items-center justify-between mb-1">
-                            <span>Flashcards</span>
-                            <span className="font-semibold">{getFlashcardProgress(sectionNum, 'lesson2')}%</span>
-                          </div>
-                          {lessonStats[`${sectionNum}-lesson2`]?.completed && (
-                            <div className="flex items-center justify-between">
-                              <span>✓ Exercise</span>
-                              <span className="font-semibold">{lessonStats[`${sectionNum}-lesson2`].score}%</span>
-                            </div>
-                          )}
-                          {/* Show "Completed" only if flashcards are 100% AND section test is 100% */}
-                          {getFlashcardProgress(sectionNum, 'lesson2') === 100 && 
-                           sectionTestScores[sectionNum]?.best === 100 && (
-                            <div className="mt-1 text-green-600 font-semibold">
-                              ✓ Completed
-                            </div>
-                          )}
-                        </div>
-                      </button>
-
-                      {/* Lesson 3 */}
-                      <button
-                        onClick={() => startFlashcards(sectionNum, 'lesson3')}
-                        className={`bg-gradient-to-br ${colors.lesson3} rounded-lg p-6 hover:shadow-lg transition-all text-left group`}
-                      >
-                        <div className={`${colors.lesson3Icon} p-3 rounded-lg w-fit mb-3`}>
-                          <BookOpen className="size-6 text-white" />
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-1">Lesson 3</h3>
-                        <p className="text-sm text-gray-600 mb-2">
-                          {getLessonWords(sectionNum, 'lesson3').length} words
-                        </p>
-                        <div className="text-xs text-gray-700 mt-2 pt-2 border-t border-gray-300">
-                          <div className="flex items-center justify-between mb-1">
-                            <span>Flashcards</span>
-                            <span className="font-semibold">{getFlashcardProgress(sectionNum, 'lesson3')}%</span>
-                          </div>
-                          {lessonStats[`${sectionNum}-lesson3`]?.completed && (
-                            <div className="flex items-center justify-between">
-                              <span>✓ Exercise</span>
-                              <span className="font-semibold">{lessonStats[`${sectionNum}-lesson3`].score}%</span>
-                            </div>
-                          )}
-                          {/* Show "Completed" only if flashcards are 100% AND section test is 100% */}
-                          {getFlashcardProgress(sectionNum, 'lesson3') === 100 && 
-                           sectionTestScores[sectionNum]?.best === 100 && (
-                            <div className="mt-1 text-green-600 font-semibold">
-                              ✓ Completed
-                            </div>
-                          )}
-                        </div>
-                      </button>
+                          </button>
+                        );
+                      })}
 
                       {/* Section Test */}
                       <button
                         onClick={() => {
                           // Check if all lessons are complete before allowing section test
                           if (!areAllLessonsComplete(sectionNum)) {
-                            alert('Finish the exercises for Lessons 1, 2, and 3 before taking the Section Test.');
+                            alert('Finish every lesson in this section before taking the section test.');
                             return;
                           }
                           setSelectedSection(sectionNum);
@@ -622,7 +565,7 @@ export default function LearningPage({ onProgressUpdate }: LearningPageProps) {
             Back to Sections
           </button>
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Section {selectedSection} - {selectedLesson === 'lesson1' ? 'Lesson 1' : selectedLesson === 'lesson2' ? 'Lesson 2' : selectedLesson === 'lesson3' ? 'Lesson 3' : 'Section Test'}
+            Section {selectedSection} - {selectedLesson === 'test' ? 'Section Test' : `Lesson ${selectedLesson.replace('lesson', '')}`}
           </h1>
           <p className="text-lg text-gray-600">
             Study {currentWords.length} words with flashcards

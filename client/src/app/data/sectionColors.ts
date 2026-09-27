@@ -81,3 +81,19 @@ export const sectionColors = {
     testIcon: 'bg-pink-500',
   },
 } as const;
+
+const palette = [1, 2, 3, 4, 5, 6] as const;
+
+export function colorsForSection(sectionNum: number) {
+  const key = palette[(sectionNum - 1) % palette.length];
+  return sectionColors[key];
+}
+
+export function lessonColors(sectionNum: number, lessonNum: number) {
+  const colors = colorsForSection(sectionNum);
+  const slot = ((lessonNum - 1) % 3) + 1;
+  return {
+    card: colors[`lesson${slot}` as 'lesson1' | 'lesson2' | 'lesson3'],
+    icon: colors[`lesson${slot}Icon` as 'lesson1Icon' | 'lesson2Icon' | 'lesson3Icon'],
+  };
+}

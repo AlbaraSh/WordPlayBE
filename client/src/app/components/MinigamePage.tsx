@@ -14,8 +14,9 @@ type FallingWord = {
   speed: number;
   prompt: string;
   answer: string;
-  promptLang: 'jp' | 'en';
+  promptLang: 'word' | 'translation';
   shownAtMs: number; // <-- NEW: when this word was shown/spawned
+  missed?: boolean;
 };
 
 type GameScore = {
@@ -56,6 +57,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
   const [phase, setPhase] = useState<Phase>('start');
   const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'master' | ''>('');
   const [section, setSection] = useState<number | 'all' | ''>('');
+  const [direction, setDirection] = useState<'word' | 'translation' | 'both'>('both');
 
   const [timeLeft, setTimeLeft] = useState(GAME_SECONDS);
   const [score, setScore] = useState(0);
@@ -71,7 +73,10 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
   const [rewardFlash, setRewardFlash] = useState(false);
   const rewardTimeoutRef = useRef<number | null>(null);
 
-  const lastPromptRef = useRef<{ wordId: number; promptLang: 'jp' | 'en' } | null>(null);
+  const lastPromptRef = useRef<{ wordId: number; promptLang: 'word' | 'translation' } | null>(null);
+  const revealTimeoutRef = useRef<number | null>(null);
+  const revealingIdRef = useRef<string | null>(null);
+  const fallingWordsRef = useRef<FallingWord[]>([]);
   const wordDeckRef = useRef<VocabWord[]>([]);
 
   //   leaderboard now comes from backend
@@ -80,6 +85,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const gameStarted = phase === 'playing';
+  fallingWordsRef.current = fallingWords;
 
   //  guard to prevent calling endGame twice
   const endedRef = useRef(false);
@@ -184,6 +190,22 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
     endGame(false);
   }, [timeLeft, gameStarted]);
 
+  const revealMissedAnswer = (missedWord: FallingWord) => {
+    if (revealingIdRef.current === missedWord.id) return;
+    revealingIdRef.current = missedWord.id;
+    updateWordStats(missedWord.word.id, false);
+    setCurrentStreak(0);
+    setFallingWords((words) =>
+      words.map((word) => (word.id === missedWord.id ? { ...word, y: GAME_HEIGHT - 72, missed: true } : word))
+    );
+    if (revealTimeoutRef.current) window.clearTimeout(revealTimeoutRef.current);
+    revealTimeoutRef.current = window.setTimeout(() => {
+      revealTimeoutRef.current = null;
+      revealingIdRef.current = null;
+      setFallingWords((words) => words.filter((word) => word.id !== missedWord.id));
+    }, 1000);
+  };
+
   useEffect(() => {
     if (!gameStarted || timeLeft === 0) return;
 
@@ -191,28 +213,13 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
     const WORD_HIT_Y = GAME_HEIGHT - RED_LINE_HEIGHT;
 
     const moveWords = window.setInterval(() => {
-      setFallingWords((prev) => {
-        let missed = false;
-
-        const next = prev
-          .map((fw) => ({ ...fw, y: fw.y + fw.speed }))
-          .filter((fw) => {
-            if (fw.y >= WORD_HIT_Y) {
-              missed = true;
-
-              // record incorrect when word hits red line
-              updateWordStats(fw.word.id, false);
-
-              return false; // remove word
-            }
-            return true;
-          });
-
-        // streak resets whenever an incorrect is stored (red line miss)
-        if (missed) setCurrentStreak(0);
-
-        return next;
-      });
+      const prev = fallingWordsRef.current;
+      const justMissed = prev.find((fw) => !fw.missed && fw.y + fw.speed >= WORD_HIT_Y);
+      if (justMissed) {
+        revealMissedAnswer(justMissed);
+        return;
+      }
+      setFallingWords(prev.map((fw) => (fw.missed ? fw : { ...fw, y: fw.y + fw.speed })));
     }, 50);
 
     return () => window.clearInterval(moveWords);
@@ -226,17 +233,18 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
     const randomWord = drawNextWord();
     if (!randomWord) return;
 
-    let promptLang: 'jp' | 'en' = Math.random() > 0.5 ? 'jp' : 'en';
+    let promptLang: 'word' | 'translation' =
+      direction === 'both' ? (Math.random() > 0.5 ? 'word' : 'translation') : direction;
 
     const last = lastPromptRef.current;
-    if (last && last.wordId === randomWord.id && last.promptLang === promptLang) {
-      promptLang = promptLang === 'jp' ? 'en' : 'jp';
+    if (direction === 'both' && last && last.wordId === randomWord.id && last.promptLang === promptLang) {
+      promptLang = promptLang === 'word' ? 'translation' : 'word';
     }
 
     lastPromptRef.current = { wordId: randomWord.id, promptLang };
 
-    const prompt = promptLang === 'jp' ? randomWord.word : randomWord.translation;
-    const answer = promptLang === 'jp' ? randomWord.translation : randomWord.word;
+    const prompt = promptLang === 'word' ? randomWord.word : randomWord.translation;
+    const answer = promptLang === 'word' ? randomWord.translation : randomWord.word;
 
     const newWord: FallingWord = {
       id: `${Date.now()}-${Math.random()}`,
@@ -253,7 +261,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
     setQuestionsAsked((prev) => prev + 1);
 
     focusInputNoScroll();
-  }, [gameStarted, timeLeft, availableWords, difficulty, fallingWords.length]);
+  }, [gameStarted, timeLeft, availableWords, difficulty, direction, fallingWords.length]);
 
   const initializeGame = () => {
     if (!difficulty || !section) return;
@@ -287,6 +295,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
   };
 
   const resetToStartScreen = () => {
+    clearReveal();
     setPhase('start');
     setTimeLeft(GAME_SECONDS);
     setDifficulty('');
@@ -306,7 +315,16 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
     endedRef.current = false;
   };
 
+  const clearReveal = () => {
+    if (revealTimeoutRef.current) {
+      window.clearTimeout(revealTimeoutRef.current);
+      revealTimeoutRef.current = null;
+    }
+    revealingIdRef.current = null;
+  };
+
   const endGame = async (discardScore: boolean = false) => {
+    clearReveal();
     setFallingWords([]);
     setUserInput('');
 
@@ -321,8 +339,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
 
     try {
       if (score > 0) {
-        const sectionNumToSave: number | undefined =
-          section === '' ? undefined : section === 'all' ? 7 : section;
+        const sectionNumToSave: number | null = typeof section === 'number' ? section : null;
 
         await api.addScore({
           score,
@@ -346,7 +363,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
     if (!trimmedInput) return;
 
     const activeWord = fallingWords[0];
-    if (!activeWord) {
+    if (!activeWord || activeWord.missed) {
       setUserInput('');
       return;
     }
@@ -377,13 +394,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
       //   Master: one chance — store incorrect, reset streak, and remove word
       //   Other modes: unlimited tries — do NOT store incorrect; do NOT reset streak; word stays falling
       if (difficulty === 'master') {
-        updateWordStats(activeWord.word.id, false);
-
-        //   streak resets whenever an incorrect is stored
-        setCurrentStreak(0);
-
-        // one chance: remove the word so the next one spawns
-        setFallingWords([]);
+        revealMissedAnswer(activeWord);
       }
     }
 
@@ -451,6 +462,36 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
                   </div>
                   <div className="mt-3 text-xs text-gray-500">
                     Scoring: Beginner +10 • Intermediate +50 • Master +100
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Translation direction *</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      onClick={() => setDirection('word')}
+                      className={`px-4 py-3 rounded-lg font-medium transition-colors ${
+                        direction === 'word' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Word → translation
+                    </button>
+                    <button
+                      onClick={() => setDirection('translation')}
+                      className={`px-4 py-3 rounded-lg font-medium transition-colors ${
+                        direction === 'translation' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Translation → word
+                    </button>
+                    <button
+                      onClick={() => setDirection('both')}
+                      className={`px-4 py-3 rounded-lg font-medium transition-colors ${
+                        direction === 'both' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Both
+                    </button>
                   </div>
                 </div>
 
@@ -546,10 +587,14 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
                   {fallingWords.map((fw) => (
                     <div
                       key={fw.id}
-                      className="absolute left-1/2 transform -translate-x-1/2 px-4 py-2 bg-white rounded-lg shadow-lg border-2 border-blue-400 font-bold text-lg text-gray-900 whitespace-nowrap z-10"
+                      className={`absolute left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg border-2 font-bold text-lg whitespace-nowrap z-10 ${
+                        fw.missed
+                          ? 'bg-amber-50 border-amber-500 text-amber-950'
+                          : 'bg-white border-blue-400 text-gray-900'
+                      }`}
                       style={{ top: `${fw.y}px` }}
                     >
-                      {fw.prompt}
+                      {fw.missed ? fw.answer : fw.prompt}
                     </div>
                   ))}
 
@@ -588,10 +633,10 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
                   {fallingWords[0] && (
                     <p className="text-xs text-gray-500 mt-2">
                       Prompt:{' '}
-                      <span className="font-medium">{fallingWords[0].promptLang === 'jp' ? 'Japanese' : 'English'}</span>
+                      <span className="font-medium">{fallingWords[0].promptLang === 'word' ? 'Word' : 'Translation'}</span>
                       {' — '}
-                      Answer in{' '}
-                      <span className="font-medium">{fallingWords[0].promptLang === 'jp' ? 'English' : 'Japanese'}</span>.
+                      Answer with the{' '}
+                      <span className="font-medium">{fallingWords[0].promptLang === 'word' ? 'translation' : 'word'}</span>.
                     </p>
                   )}
                 </form>
