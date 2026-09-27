@@ -6,6 +6,7 @@ import { createApp } from '../src/createApp.js';
 
 let server;
 let base;
+let db;
 
 function cookieFrom(res) {
   const cookies = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
@@ -27,7 +28,7 @@ async function api(path, { method = 'GET', body, cookie } = {}) {
 }
 
 before(async () => {
-  const db = openDb(':memory:');
+  db = openDb(':memory:');
   initSchemaAndSeed(db);
   server = createApp(db).listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -226,4 +227,49 @@ test('import replaces the starter list and reset restores it', async () => {
 
   const empty = await api('/api/vocab/preview', { method: 'POST', cookie: user.cookie, body: { csv: 'term,translation\n' } });
   assert.equal(empty.status, 400);
+
+  const absurd = await api('/api/leaderboard', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: { score: 999999, difficulty: 'godmode', sectionNum: null },
+  });
+  assert.equal(absurd.status, 400);
+});
+
+test('study time is returned with progress', async () => {
+  const user = await api('/api/auth/register', {
+    method: 'POST',
+    body: { email: 'dora@example.com', password: 'password1', displayName: 'Dora' },
+  });
+  const session = await api('/api/events/study-session', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: {
+      startTime: '2026-01-28T14:00:00.000Z',
+      endTime: '2026-01-28T14:25:00.000Z',
+      totalDuration: '00:25:00',
+    },
+  });
+  assert.equal(session.status, 201);
+
+  const progress = await api('/api/progress', { cookie: user.cookie });
+  assert.equal(progress.data.study.sessionCount, 1);
+  assert.equal(progress.data.study.totalSeconds, 25 * 60);
+});
+
+test('expired sessions are rejected, including legacy ISO timestamps', async () => {
+  const user = await api('/api/auth/register', {
+    method: 'POST',
+    body: { email: 'erin@example.com', password: 'password1', displayName: 'Erin' },
+  });
+  const sid = user.cookie.slice('sid='.length);
+
+  db.prepare(`UPDATE sessions SET expires_at = ? WHERE id = ?`).run('2000-01-01T00:00:00.000Z', sid);
+  const expired = await api('/api/auth/me', { cookie: user.cookie });
+  assert.equal(expired.status, 401);
+
+  db.prepare(`UPDATE sessions SET expires_at = ? WHERE id = ?`).run('2099-01-01T00:00:00.000Z', sid);
+  const legacy = await api('/api/auth/me', { cookie: user.cookie });
+  assert.equal(legacy.status, 200);
+  assert.equal(legacy.data.user.displayName, 'Erin');
 });

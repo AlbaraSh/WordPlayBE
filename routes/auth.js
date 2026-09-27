@@ -3,6 +3,24 @@ import express from 'express';
 import { createUserAchievements } from '../schema-init.js';
 import { clearSession, createSession } from '../src/middleware/session.js';
 
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
+const attempts = new Map();
+
+function rateLimit(req, res, next) {
+  const now = Date.now();
+  const key = req.ip || 'local';
+  const recent = (attempts.get(key) || []).filter((at) => now - at < 15 * 60 * 1000);
+  if (recent.length >= 30) {
+    return res.status(429).json({
+      error: 'RATE_LIMITED',
+      message: 'Too many attempts. Try again in a few minutes.',
+    });
+  }
+  recent.push(now);
+  attempts.set(key, recent);
+  next();
+}
+
 function normalizeEmail(email) {
   return typeof email === 'string' ? email.trim().toLowerCase() : '';
 }
@@ -18,7 +36,7 @@ function publicUser(row) {
 export function authRouter(db) {
   const router = express.Router();
 
-  router.post('/register', (req, res) => {
+  router.post('/register', rateLimit, async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const password = req.body?.password;
     const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
@@ -38,7 +56,7 @@ export function authRouter(db) {
       return res.status(409).json({ error: 'CONFLICT', message: 'An account with that email already exists' });
     }
 
-    const passwordHash = bcrypt.hashSync(password, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
     const user = db.transaction(() => {
       const info = db.prepare(`
         INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)
@@ -51,12 +69,14 @@ export function authRouter(db) {
     res.status(201).json({ user: publicUser(user) });
   });
 
-  router.post('/login', (req, res) => {
+  router.post('/login', rateLimit, async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const password = req.body?.password;
     const user = db.prepare(`SELECT id, email, display_name, password_hash FROM users WHERE email = ?`).get(email);
+    const hash = user?.password_hash ?? DUMMY_HASH;
+    const matches = typeof password === 'string' && await bcrypt.compare(password, hash);
 
-    if (!user || typeof password !== 'string' || !bcrypt.compareSync(password, user.password_hash)) {
+    if (!user || !matches) {
       return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Email or password is incorrect' });
     }
 

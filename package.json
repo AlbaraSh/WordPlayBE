@@ -1,7 +1,11 @@
 {
   "name": "wordplaybe",
   "version": "1.0.0",
-  "description": "",
+  "description": "Vocabulary study app with session auth, server-side progression, and imported word lists.",
+  "author": "Albara",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -9,10 +13,9 @@
     "dev": "concurrently -n api,web -c blue,green \"nodemon server.js\" \"npm run dev --prefix client\"",
     "dev:api": "nodemon server.js",
     "build": "npm run build --prefix client",
-    "test": "node --test test/importCsv.test.js test/api.test.js"
+    "test": "node --test test/importCsv.test.js test/schema.test.js test/api.test.js"
   },
   "keywords": [],
-  "author": "",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.3",

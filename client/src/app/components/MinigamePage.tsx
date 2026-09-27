@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Trophy, Timer, Medal, Target } from 'lucide-react';
-import { type VocabWord, updateWordStats, vocabularyData, courseSections } from '../data/vocabulary';
+import { useCourse, type VocabWord } from '../course';
 import { api } from '../../api/client';
 
 interface MinigamePageProps {
@@ -43,14 +43,17 @@ function toISODate(date: string | Date) {
   return d.toISOString().split('T')[0];
 }
 
-//  Display helper: if backend sends sectionNum=7, show "All"
 function formatSectionLabel(sectionNum: number | null | undefined) {
-  if (sectionNum === 7) return 'All';
-  if (sectionNum == null) return 'All';
+  if (sectionNum == null || sectionNum === 7) return 'All';
   return `Section ${sectionNum}`;
 }
 
 export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
+  const {
+    words: vocabularyData,
+    sections: courseSections,
+    recordAnswer: updateWordStats,
+  } = useCourse();
   const GAME_HEIGHT = 400;
   const GAME_SECONDS = 120;
 
@@ -709,7 +712,7 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
               <div className="bg-yellow-100 p-3 rounded-lg">
                 <Medal className="size-6 text-yellow-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Leaderboard</h2>
+              <h2 className="text-2xl font-bold text-gray-900">Your best scores</h2>
               {loadingLeaderboard && <span className="text-xs text-gray-500">Loading…</span>}
             </div>
 
@@ -727,16 +730,8 @@ export default function MinigamePage({ onProgressUpdate }: MinigamePageProps) {
                       : 'bg-white border-gray-200'
                   }`}
                 >
-                  <div className="flex-shrink-0 w-8 text-center">
-                    {index === 0 ? (
-                      <span className="text-2xl">🥇</span>
-                    ) : index === 1 ? (
-                      <span className="text-2xl">🥈</span>
-                    ) : index === 2 ? (
-                      <span className="text-2xl">🥉</span>
-                    ) : (
-                      <span className="text-lg font-bold text-gray-500">#{index + 1}</span>
-                    )}
+                  <div className="flex-shrink-0 w-8 text-center text-lg font-bold text-gray-500">
+                    {index + 1}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">

@@ -124,22 +124,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // NEW: word mastery / accuracy totals used by VocabListPage
-  // Expected response shape (either is fine):
-  // - Array: [{ wordId, totalAskedLifetime, totalCorrectLifetime, firstCorrectAt? }, ...]
-  // - Object: { items: [...] }
-  
   getWordMastery: (): Promise<WordMasteryResponse> =>
     request('/api/progress/word-mastery') as Promise<WordMasteryResponse>,
 
-  // NEW: get Words used by vocab page
   getWords: (): Promise<WordsResponse> =>
     request('/api/progress/words') as Promise<WordsResponse>,
-  // ========================
-  // EVENTS
-  // ========================
 
-  // NOTE: backend expects { correct: boolean } (not isCorrect)
   wordAnswered: (body: { wordId: number; isCorrect: boolean; responseTimeMs?: number }) =>
     request('/api/events/word-answered', {
       method: 'POST',
@@ -152,10 +142,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  achievementProgress: (body: { achievementId: string; increment?: number }) =>
+  achievementProgress: () =>
     request('/api/events/achievement-progress', {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: JSON.stringify({}),
     }),
 
   studySession: (body: { startTime: string; endTime: string; totalDuration: string }) =>

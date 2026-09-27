@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronLeft, CheckCircle, XCircle, RefreshCw } from "lucide-react";
-import { vocabularyData, updateWordStats } from "../data/vocabulary";
+import { useCourse } from "../course";
 
 interface SectionTestPageProps {
   sectionNum: number;
@@ -24,6 +24,7 @@ export default function SectionTestPage({
   onProgressUpdate,
   onTestComplete,
 }: SectionTestPageProps) {
+  const { words: vocabularyData, recordAnswer: updateWordStats } = useCourse();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userInput, setUserInput] = useState("");
   const [answerChecked, setAnswerChecked] = useState(false);
@@ -39,7 +40,7 @@ export default function SectionTestPage({
 
   const sectionWordsBase = useMemo(
     () => vocabularyData.filter((w) => w.section === sectionNum),
-    [sectionNum]
+    [sectionNum, vocabularyData]
   );
 
   const [shuffledWords, setShuffledWords] = useState(() => shuffleArray(sectionWordsBase));
