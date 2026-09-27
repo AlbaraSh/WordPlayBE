@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDefaultCourseId } from '../schema-init.js';
+import { getActiveCourseId, getDefaultCourseId } from '../schema-init.js';
 import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
 
 export function progressRouter(db) {
@@ -60,7 +60,7 @@ export function progressRouter(db) {
    */
     router.get('/', (req, res) => {
         const userId = req.user.id;
-        const courseId = getDefaultCourseId(db);
+        const courseId = getActiveCourseId(db, userId);
 
         const user = db
           .prepare(
@@ -211,8 +211,8 @@ export function progressRouter(db) {
     if (!Number.isInteger(sectionNum) || sectionNum < 1) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'sectionNum must be an integer >= 1' });
     }
-    if (!['lesson1', 'lesson2', 'lesson3', 'test'].includes(lesson)) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'lesson must be lesson1|lesson2|lesson3|test' });
+    if (!/^lesson[1-9]\d*$/.test(lesson)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'lesson must look like lesson1' });
     }
     if (!Number.isInteger(flashcardProgress) || flashcardProgress < 0 || flashcardProgress > 100) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'flashcardProgress must be 0..100' });
@@ -224,7 +224,7 @@ export function progressRouter(db) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'completed must be boolean' });
     }
 
-    const courseId = getDefaultCourseId(db);
+    const courseId = getActiveCourseId(db, userId);
     db.prepare(`
       INSERT INTO lesson_progress (user_id, course_id, section_num, lesson, flashcard_progress, score, completed, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
@@ -255,7 +255,7 @@ export function progressRouter(db) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'score must be 0..100' });
     }
 
-    const courseId = getDefaultCourseId(db);
+    const courseId = getActiveCourseId(db, userId);
     const saved = db.prepare(`
       INSERT INTO section_test_scores (user_id, course_id, section_num, score, best_score, completed_at)
       VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -277,7 +277,7 @@ export function progressRouter(db) {
   router.get('/words', (req, res) => {
   const userId = req.user.id;
 
-  const courseId = getDefaultCourseId(db);
+  const courseId = getActiveCourseId(db, userId);
   const sections = db.prepare(`
     SELECT section_num, name FROM sections WHERE course_id = ? ORDER BY section_num
   `).all(courseId);
@@ -293,6 +293,7 @@ export function progressRouter(db) {
   res.json({
     userId,
     courseId,
+    custom: courseId !== getDefaultCourseId(db),
     sections: sections.map((section) => ({
       sectionNum: section.section_num,
       name: section.name,

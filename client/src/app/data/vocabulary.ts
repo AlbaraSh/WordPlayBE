@@ -37,6 +37,7 @@ export function transformWordsToVocabData(response: WordsResponse): VocabWord[] 
 // Initialize as empty array
 export let vocabularyData: VocabWord[] = [];
 export let courseSections: CourseSection[] = [];
+export let usingCustomVocab = false;
 
 // Initialize function that fetches and populates vocabularyData
 export async function initializeVocabularyData(): Promise<void> {
@@ -46,12 +47,14 @@ export async function initializeVocabularyData(): Promise<void> {
     console.log('API response:', response);
     vocabularyData = transformWordsToVocabData(response);
     courseSections = response.sections ?? [];
+    usingCustomVocab = Boolean(response.custom);
     console.log('Vocabulary data loaded:', vocabularyData.length, 'words');
   } catch (error) {
     console.error('Failed to load vocabulary data:', error);
     // Set to empty array on error so app can still load
     vocabularyData = [];
     courseSections = [];
+    usingCustomVocab = false;
     throw error;
   }
 }

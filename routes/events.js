@@ -1,6 +1,7 @@
 import express from 'express';
 import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
 import { syncAchievements } from '../src/utils/xp.js';
+import { getActiveCourseId } from '../schema-init.js';
 
 const XP = {
   NEW_WORD_LEARNED: 10,
@@ -60,7 +61,7 @@ export function eventsRouter(db) {
   const router = express.Router();
 
   // Prepared statements
-  const wordExistsStmt = db.prepare(`SELECT 1 FROM words WHERE id = ?`);
+  const wordExistsStmt = db.prepare(`SELECT 1 FROM words WHERE id = ? AND course_id = ?`);
 
   const insertDailyNoRTStmt = db.prepare(`
   INSERT INTO user_word_daily_stats (
@@ -196,7 +197,7 @@ export function eventsRouter(db) {
     }
 
     // Prevent FK errors
-    const wordExists = wordExistsStmt.get(wordId);
+    const wordExists = wordExistsStmt.get(wordId, getActiveCourseId(db, userId));
     if (!wordExists) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',

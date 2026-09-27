@@ -9,7 +9,7 @@
     "dev": "concurrently -n api,web -c blue,green \"nodemon server.js\" \"npm run dev --prefix client\"",
     "dev:api": "nodemon server.js",
     "build": "npm run build --prefix client",
-    "test": "node --test test/api.test.js"
+    "test": "node --test test/importCsv.test.js test/api.test.js"
   },
   "keywords": [],
   "author": "",

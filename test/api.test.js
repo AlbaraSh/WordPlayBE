@@ -122,3 +122,108 @@ test('register, login, and isolated progress', async () => {
   const after = await api('/api/auth/me', { cookie: loggedOut.cookie });
   assert.equal(after.status, 401);
 });
+
+test('import replaces the starter list and reset restores it', async () => {
+  const user = await api('/api/auth/register', {
+    method: 'POST',
+    body: { email: 'cara@example.com', password: 'password1', displayName: 'Cara' },
+  });
+  const learned = await api('/api/events/word-answered', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: { wordId: 2, isCorrect: true, responseTimeMs: 500 },
+  });
+  assert.equal(learned.status, 200);
+  const xpBeforeImport = learned.data.totalXp;
+
+  const csv = ['term,translation,section', ...Array.from({ length: 16 }, (_, i) => `t${i},m${i},Food`)].join('\n');
+  const preview = await api('/api/vocab/preview', { method: 'POST', cookie: user.cookie, body: { csv } });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.data.wordCount, 16);
+  assert.equal(preview.data.sections[0].lessons.length, 4);
+  assert.equal(preview.data.replacesCustom, false);
+
+  const stillStarter = await api('/api/progress/words', { cookie: user.cookie });
+  assert.equal(stillStarter.data.words.length, 64);
+  assert.equal(stillStarter.data.custom, false);
+
+  const imported = await api('/api/vocab/import', { method: 'POST', cookie: user.cookie, body: { csv } });
+  assert.equal(imported.status, 200);
+
+  const words = await api('/api/progress/words', { cookie: user.cookie });
+  assert.equal(words.data.custom, true);
+  assert.equal(words.data.words.length, 16);
+  assert.equal(words.data.sections[0].name, 'Food');
+  assert.equal(Math.max(...words.data.words.map((word) => word.lessonNum)), 4);
+
+  const hidden = await api('/api/events/word-answered', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: { wordId: 2, isCorrect: true, responseTimeMs: 100 },
+  });
+  assert.equal(hidden.status, 400);
+
+  const customWordId = words.data.words[0].id;
+  const answered = await api('/api/events/word-answered', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: { wordId: customWordId, isCorrect: true, responseTimeMs: 300 },
+  });
+  assert.equal(answered.status, 200);
+  assert.equal(answered.data.wasFirstCorrectEver, true);
+
+  const lesson = await api('/api/progress/lesson', {
+    method: 'PATCH',
+    cookie: user.cookie,
+    body: { sectionNum: 1, lesson: 'lesson4', flashcardProgress: 100, score: 80, completed: true },
+  });
+  assert.equal(lesson.status, 200);
+
+  const score = await api('/api/leaderboard', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: { score: 30, difficulty: 'beginner', sectionNum: null },
+  });
+  assert.equal(score.status, 201);
+  assert.equal(score.data.sectionNum, null);
+
+  const other = await api('/api/auth/login', {
+    method: 'POST',
+    body: { email: 'bea@example.com', password: 'password1' },
+  });
+  const otherWords = await api('/api/progress/words', { cookie: other.cookie });
+  assert.equal(otherWords.data.words.length, 64);
+  assert.equal(otherWords.data.custom, false);
+
+  const replaced = await api('/api/vocab/import', {
+    method: 'POST',
+    cookie: user.cookie,
+    body: { csv: 'alpha,one\nbeta,two\n' },
+  });
+  assert.equal(replaced.status, 200);
+  const afterReplace = await api('/api/progress/words', { cookie: user.cookie });
+  assert.equal(afterReplace.data.words.length, 2);
+  assert.equal(afterReplace.data.words.some((word) => word.romaji === 't0'), false);
+  assert.equal(afterReplace.data.words.some((word) => word.romaji === 'alpha'), true);
+
+  const reset = await api('/api/vocab/reset', { method: 'POST', cookie: user.cookie });
+  assert.equal(reset.status, 200);
+  const restored = await api('/api/progress/words', { cookie: user.cookie });
+  assert.equal(restored.data.custom, false);
+  assert.equal(restored.data.words.length, 64);
+
+  const progress = await api('/api/progress', { cookie: user.cookie });
+  assert.ok(progress.data.userStats.totalXp > xpBeforeImport);
+  assert.equal(progress.data.userStats.wordsLearned, 2);
+  assert.equal(progress.data.sectionTestScores['1'], undefined);
+  assert.equal(progress.data.lessonStats['1-lesson4'], undefined);
+
+  const board = await api('/api/leaderboard/top10', { cookie: user.cookie });
+  assert.equal(board.data.top10.some((row) => row.score === 30 && row.sectionNum == null), true);
+
+  const again = await api('/api/vocab/reset', { method: 'POST', cookie: user.cookie });
+  assert.equal(again.status, 400);
+
+  const empty = await api('/api/vocab/preview', { method: 'POST', cookie: user.cookie, body: { csv: 'term,translation\n' } });
+  assert.equal(empty.status, 400);
+});

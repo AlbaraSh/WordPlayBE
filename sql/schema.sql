@@ -34,8 +34,12 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS courses (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1))
+  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+  owner_user_id INTEGER,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_owner ON courses(owner_user_id) WHERE owner_user_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS sections (
   course_id INTEGER NOT NULL,
@@ -49,7 +53,7 @@ CREATE TABLE IF NOT EXISTS words (
   id INTEGER PRIMARY KEY,
   course_id INTEGER NOT NULL,
   section_num INTEGER NOT NULL,
-  lesson_num INTEGER NOT NULL CHECK (lesson_num BETWEEN 1 AND 3),
+  lesson_num INTEGER NOT NULL CHECK (lesson_num >= 1),
   category TEXT NOT NULL,
   romaji TEXT NOT NULL,
   english TEXT NOT NULL,
@@ -63,7 +67,7 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
   user_id INTEGER NOT NULL,
   course_id INTEGER NOT NULL,
   section_num INTEGER NOT NULL CHECK (section_num >= 1),
-  lesson TEXT NOT NULL CHECK (lesson IN ('lesson1', 'lesson2', 'lesson3', 'test')),
+  lesson TEXT NOT NULL CHECK (lesson GLOB 'lesson[1-9]*'),
   flashcard_progress INTEGER NOT NULL DEFAULT 0 CHECK (flashcard_progress BETWEEN 0 AND 100),
   score INTEGER NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 100),
   completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),

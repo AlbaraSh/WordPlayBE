@@ -1,12 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp, Volume2 } from 'lucide-react';
-import { vocabularyData, userWordStats, courseSections, initializeUserWordStats } from '../data/vocabulary';
-import { sectionColors } from '../data/sectionColors';
+import { api, VocabPreview } from '../../api/client';
+import {
+  vocabularyData,
+  userWordStats,
+  courseSections,
+  usingCustomVocab,
+  initializeVocabularyData,
+  initializeUserWordStats,
+} from '../data/vocabulary';
+import { colorsForSection } from '../data/sectionColors';
 
 export default function VocabListPage() {
   const [openSections, setOpenSections] = useState<Set<number>>(new Set());
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [statsVersion, setStatsVersion] = useState(0); // Force re-render when stats load
+  const [preview, setPreview] = useState<VocabPreview | null>(null);
+  const [pendingCsv, setPendingCsv] = useState('');
+  const [importError, setImportError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -23,6 +36,67 @@ export default function VocabListPage() {
 
     loadStats();
   }, []); // Empty dependency array means this runs once when component mounts
+
+  const reloadList = async () => {
+    await initializeVocabularyData();
+    await initializeUserWordStats();
+    setStatsVersion((version) => version + 1);
+  };
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setImportError('');
+    setPreview(null);
+    try {
+      const csv = await file.text();
+      const next = await api.previewVocab(csv);
+      setPendingCsv(csv);
+      setPreview(next);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Could not read that file');
+    }
+  };
+
+  const saveImport = async () => {
+    if (!pendingCsv) return;
+    if (preview?.replacesCustom || usingCustomVocab) {
+      const ok = window.confirm(
+        'This replaces your imported words and erases flashcard progress, quiz scores, section-test scores, and per-word accuracy for that list. XP, your streak, and minigame scores stay.'
+      );
+      if (!ok) return;
+    }
+    setBusy(true);
+    setImportError('');
+    try {
+      await api.importVocab(pendingCsv);
+      setPreview(null);
+      setPendingCsv('');
+      await reloadList();
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Import failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetVocab = async () => {
+    const ok = window.confirm(
+      'This removes your imported words and erases flashcard progress, quiz scores, section-test scores, and per-word accuracy for that list. XP, your streak, and minigame scores stay. The original starter vocabulary comes back.'
+    );
+    if (!ok) return;
+    setBusy(true);
+    setImportError('');
+    try {
+      await api.resetVocab();
+      setPreview(null);
+      setPendingCsv('');
+      await reloadList();
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Reset failed');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const playAudio = (text: string) => {
     // Using Web Speech API for text-to-speech
@@ -67,6 +141,74 @@ export default function VocabListPage() {
         <p className="text-lg text-gray-600">
           Browse {vocabularyData.length} words organized into {courseSections.length} sections
         </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="px-4 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800"
+          >
+            Import vocabulary
+          </button>
+          {usingCustomVocab && (
+            <button
+              type="button"
+              onClick={resetVocab}
+              disabled={busy}
+              className="px-4 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              Reset to starter vocabulary
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              onFile(file);
+            }}
+          />
+        </div>
+        {importError && <p className="mt-3 text-sm text-red-600">{importError}</p>}
+        {preview && (
+          <div className="mt-4 bg-white border border-gray-200 rounded-xl p-4">
+            <h2 className="text-lg font-bold text-gray-900">Preview</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {preview.wordCount} words in {preview.sections.length} sections.
+              {preview.skipped.length > 0 ? ` ${preview.skipped.length} rows skipped.` : ''}
+            </p>
+            <ul className="mt-3 space-y-1 text-sm text-gray-700">
+              {preview.sections.map((section) => (
+                <li key={section.sectionNum}>
+                  {section.name}: {section.lessons.length} lessons,{' '}
+                  {section.lessons.reduce((sum, lesson) => sum + lesson.words.length, 0)} words
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                onClick={saveImport}
+                disabled={busy}
+                className="px-4 py-2 rounded-lg bg-green-700 text-white hover:bg-green-800 disabled:opacity-50"
+              >
+                Use this list
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPreview(null);
+                  setPendingCsv('');
+                }}
+                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Loading state */}
@@ -82,7 +224,7 @@ export default function VocabListPage() {
           const sectionNum = section.sectionNum;
           const words = getWordsBySection(sectionNum);
           const isOpen = openSections.has(sectionNum);
-          const colors = sectionColors[sectionNum as keyof typeof sectionColors];
+          const colors = colorsForSection(sectionNum);
 
           return (
             <div key={sectionNum} className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">

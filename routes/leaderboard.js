@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDefaultCourseId } from '../schema-init.js';
+import { getActiveCourseId } from '../schema-init.js';
 import { calculateLevelFromXp, calculateBadgeIdFromLevel } from '../src/utils/levelCalculations.js';
 import { syncAchievements } from '../src/utils/xp.js';
 
@@ -55,7 +55,7 @@ export function leaderboardRouter(db) {
     }
 
     const tx = db.transaction(() => {
-      const courseId = getDefaultCourseId(db);
+      const courseId = getActiveCourseId(db, userId);
       const info = db.prepare(`
         INSERT INTO minigame_scores (user_id, course_id, score, difficulty, section_num, played_at, played_date)
         VALUES (?, ?, ?, ?, ?, datetime('now'), date('now'))

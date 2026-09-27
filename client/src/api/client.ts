@@ -22,9 +22,21 @@ export type WordMasteryResponse = {
   >;
 };
 
+export type VocabPreview = {
+  wordCount: number;
+  replacesCustom: boolean;
+  skipped: { line: number; reason: string }[];
+  sections: {
+    sectionNum: number;
+    name: string;
+    lessons: { lessonNum: number; words: { term: string; translation: string }[] }[];
+  }[];
+};
+
 export interface WordsResponse {
   userId: number;
   courseId: number;
+  custom: boolean;
   sections: CourseSection[];
   words: {
     id: number;
@@ -157,7 +169,21 @@ export const api = {
   // LEADERBOARD
   // ========================
 
-  addScore: (body: { score: number; difficulty: string; sectionNum?: number }) =>
+  previewVocab: (csv: string) =>
+    request<VocabPreview>('/api/vocab/preview', {
+      method: 'POST',
+      body: JSON.stringify({ csv }),
+    }),
+
+  importVocab: (csv: string) =>
+    request('/api/vocab/import', {
+      method: 'POST',
+      body: JSON.stringify({ csv }),
+    }),
+
+  resetVocab: () => request('/api/vocab/reset', { method: 'POST' }),
+
+  addScore: (body: { score: number; difficulty: string; sectionNum?: number | null }) =>
     request('/api/leaderboard', {
       method: 'POST',
       body: JSON.stringify(body),
